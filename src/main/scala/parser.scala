@@ -1,3 +1,7 @@
+// Copyright (c) 2018-2021 by Oli Winks
+// This software is licensed under the MIT License (MIT).
+// For more information see LICENSE or https://opensource.org/licenses/MIT
+
 package parser
 
 import adt.*
