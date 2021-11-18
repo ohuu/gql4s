@@ -1,0 +1,56 @@
+# File created using '.gitignore Generator' for Visual Studio Code: https://bit.ly/vscode-gig
+
+# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,bloop,metals,sbt,scala
+# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,bloop,metals,sbt,scala
+
+### Bloop ###
+.bloop/
+
+### Metals ###
+.metals/
+project/**/metals.sbt
+
+### SBT ###
+# Simple Build Tool
+# http://www.scala-sbt.org/release/docs/Getting-Started/Directories.html#configuring-version-control
+
+dist/*
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+.history
+.cache
+.lib/
+
+### Scala ###
+*.class
+*.log
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+
+### VisualStudioCode ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Local History for Visual Studio Code
+.history/
+
+### VisualStudioCode Patch ###
+# Ignore all local history of files
+.ionide
+
+# Support for Project snippet scope
+!.vscode/*.code-snippets
+
+# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,bloop,metals,sbt,scala
+
+# Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
+
+null/
