@@ -93,10 +93,8 @@ val listValue: P[Value] =
     .map(ListValue(_))
 
 // Object Value
-val objectField: P[ObjectField] = (name ~ betweenWsp(char(':')) ~ defer(value))
-  .map { case ((name, _), value) =>
-    ObjectField(name, value)
-  }
+val objectField: P[ObjectField] = ((name <* betweenWsp(char(':'))) ~ defer(value))
+  .map(ObjectField.apply.tupled)
 val objectValue = betweenCurlys((objectField <* ignore).rep0)
   .map(ObjectValue(_))
 
@@ -122,3 +120,11 @@ val value =
     | enumValue
     | listValue
     | objectValue
+
+// Arguments
+val argument  = ((name <* betweenWsp(char(':'))) ~ value).map(Argument.apply.tupled)
+val arguments = betweenParas((argument <* ignore).rep0)
+
+// Directives
+val directive  = (char('@') *> name ~ arguments.?).map(Directive.apply.tupled)
+val directives = directive.rep0

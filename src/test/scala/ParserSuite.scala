@@ -5,17 +5,17 @@ import adt.Value.*
 import munit.FunSuite
 
 class ParserSuite extends FunSuite:
-  test("test comments") {
-    // Comments
+  test("comments") {
     assert(clue(comment.parse("# comment 0")).isRight)
+  }
 
-    // Names
+  test("names") {
     assert(clue(name.parse("_0myName")) == Right("", Name("_0myName")))
     assert(name.parse("0name").isLeft) // names cannot start with a number
+  }
 
+  test("values") {
     // Int Value
-    // assert(clue(integerPart0.parse("-0")) == Right("", "-0"))
-    // assert(clue(integerPart1.parse("-1337")) == Right("", "-1337"))
     assert(clue(integerPart.parse("-0")) == Right("", "-0"))
     assert(clue(integerPart.parse("-1338")) == Right("", "-1338"))
     assert(clue(intValue.parse("1338")) == Right("", IntValue(1338)))
@@ -33,21 +33,28 @@ class ParserSuite extends FunSuite:
     assert(clue(booleanValue.parse("tru")).isLeft)
 
     // String Value
-    assert(clue(blockStringValue.parse("\"\"\"abcd\"\"\"")) == Right("", "abcd"))
-    assert(clue(blockStringValue.parse("\"\"\"\\\"\"\"\"\"\"")) == Right("", "\\\"\"\""))
-    assert(clue(escapedUnicode.parse("01DF")) == Right("", "01DF"))
-    assert(clue(escapedUnicode.parse("01df")) == Right("", "01df"))
-    assert(clue(escapedUnicode.parse("01dfa")) == Right("a", "01df"))
+    val strTest = List(
+      "\"\"\"abcd\"\"\""           -> ("", "abcd"),
+      "\"\"\"\\\"\"\"\"\"\""       -> ("", "\\\"\"\""),
+      "01DF"                       -> ("", "01DF"),
+      "01df"                       -> ("", "01df"),
+      "01dfa"                      -> ("a", "01df"),
+      "\"my name is Oli\""         -> ("", StringValue("my name is Oli")),
+      "\\\""                       -> ("", "\\\""),
+      "\"my name is \\\"Oli\\\"\"" -> ("", StringValue("my name is \\\"Oli\\\"")),
+      "\"\\u05AD\""                -> ("", StringValue("\\u05AD"))
+    )
+
+    assert(clue(blockStringValue.parse(strTest(0)._1)) == Right(strTest(0)._2))
+    assert(clue(blockStringValue.parse(strTest(1)._1)) == Right(strTest(1)._2))
+    assert(clue(escapedUnicode.parse(strTest(2)._1)) == Right(strTest(2)._2))
+    assert(clue(escapedUnicode.parse(strTest(3)._1)) == Right(strTest(3)._2))
+    assert(clue(escapedUnicode.parse(strTest(4)._1)) == Right(strTest(4)._2))
     assert(clue(escapedUnicode.parse("01dg")).isLeft)
-    assert(
-      clue(stringValue.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
-    )
-    assert(clue(stringValue1.parse("\\\"")) == Right("", "\\\""))
-    assert(
-      clue(stringValue.parse("\"my name is \\\"Oli\\\"\"")) ==
-        Right("", StringValue("my name is \\\"Oli\\\""))
-    )
-    assert(clue(stringValue.parse("\"\\u05AD\"")) == Right("", StringValue("\\u05AD")))
+    assert(clue(stringValue.parse(strTest(5)._1)) == Right(strTest(5)._2))
+    assert(clue(stringValue1.parse(strTest(6)._1)) == Right(strTest(6)._2))
+    assert(clue(stringValue.parse(strTest(7)._1)) == Right(strTest(7)._2))
+    assert(clue(stringValue.parse(strTest(8)._1)) == Right(strTest(8)._2))
 
     // Null Value
     assert(clue(nullValue.parse("null")) == Right("", NullValue))
@@ -58,23 +65,31 @@ class ParserSuite extends FunSuite:
     assert(clue(enumValue.parse("null")).isLeft)
 
     // List Value
-    assert(clue(listValue.parse("[]")) == Right("", ListValue(Nil)))
-    assert(clue(listValue.parse("[42]")) == Right("", ListValue(IntValue(42) :: Nil)))
-    assert(
-      clue(listValue.parse("[42, 43]")) == Right("", ListValue(IntValue(42) :: IntValue(43) :: Nil))
-    )
-    assert(
-      clue(listValue.parse("[[42]]")) == Right("", ListValue(ListValue(IntValue(42) :: Nil) :: Nil))
+    val listTest = List(
+      "[]"       -> ("", ListValue(Nil)),
+      "[42]"     -> ("", ListValue(IntValue(42) :: Nil)),
+      "[42, 43]" -> ("", ListValue(IntValue(42) :: IntValue(43) :: Nil)),
+      "[[42]]"   -> ("", ListValue(ListValue(IntValue(42) :: Nil) :: Nil))
     )
 
+    assert(clue(listValue.parse(listTest(0)._1)) == Right(listTest(0)._2))
+    assert(clue(listValue.parse(listTest(1)._1)) == Right(listTest(1)._2))
+    assert(clue(listValue.parse(listTest(2)._1)) == Right(listTest(2)._2))
+    assert(clue(listValue.parse(listTest(3)._1)) == Right(listTest(3)._2))
+
     // Object Value
-    assert(clue(objectValue.parse("{}")) == Right("", ObjectValue(Nil)))
-    assert(
-      clue(objectValue.parse("""{ 
+    val objTest = List(
+      "{}" -> ("", ObjectValue(Nil)),
+      """{
         name: "oli" 
-      }""")) == // TODO: Should be able to insert new lines
-        Right("", ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil))
+      }""" -> (
+        "",
+        ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil)
+      )
     )
+
+    assert(clue(objectValue.parse(objTest(0)._1)) == Right(objTest(0)._2))
+    assert(clue(objectValue.parse(objTest(1)._1)) == Right(objTest(1)._2))
 
     // Value
     assert(clue(value.parse("1338")) == Right("", IntValue(1338)))
@@ -83,14 +98,52 @@ class ParserSuite extends FunSuite:
     assert(clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\"")))
     assert(clue(value.parse("null")) == Right("", NullValue))
     assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
+  }
 
+  test("type references") {
     // Type Reference
     assert(clue(listType.parse("[Int]")) == Right("", "[Int]"))
     assert(clue(listType.parse("[42]")).isLeft)
     assert(clue(nonNullType.parse("Int!")) == Right("", "Int!"))
     assert(clue(tpe.parse("[Int]")) == Right("", "[Int]"))
     assert(clue(tpe.parse("Int!")) == Right("", "Int!"))
+  }
 
+  test("variables") {
     // Variable
     assert(clue(variableDefinition.parse("$thing:Int!=42")).isRight)
+  }
+
+  test("arguments") {
+    val test = List(
+      "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue(42.5))),
+      """( name: "oli", age: 38  )""" -> (
+        "",
+        List(
+          Argument(Name("name"), StringValue("oli")),
+          Argument(Name("age"), IntValue(38))
+        )
+      )
+    )
+
+    // Argument
+    assert(clue(argument.parse(test(0)._1)) == Right(test(0)._2))
+    assert(clue(arguments.parse(test(1)._1)) == Right(test(1)._2))
+  }
+
+  test("directives") {
+    val test = List(
+      """@excludeField(name: "photo")""" -> (
+        "",
+        Directive(
+          Name("excludeField"),
+          List(
+            Argument(Name("name"), StringValue("photo"))
+          )
+        )
+      )
+    )
+
+    // Directive
+    assert(clue(directive.parse(test(0)._1)) == Right(test(0)._2))
   }

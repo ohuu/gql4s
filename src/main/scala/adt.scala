@@ -19,3 +19,13 @@ enum Value:
   case ListValue(values: List[Value])
   case EnumValue(name: Name)
   case ObjectValue(fields: List[ObjectField])
+end Value
+
+// Argument
+case class Argument(name: Name, value: Value)
+
+// Directive
+object Directive {
+  def apply(name: Name, args: Option[List[Argument]]) = new Directive(name, args.getOrElse(Nil))
+}
+case class Directive(name: Name, args: List[Argument])
