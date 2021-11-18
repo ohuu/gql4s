@@ -6,6 +6,9 @@ import munit.FunSuite
 
 class ParserSuite extends FunSuite:
   test("test comments") {
+    // Comments
+    assert(clue(comment.parse("# comment 0")).isRight)
+
     // Names
     assert(clue(name.parse("_0myName")) == Right("", Name("_0myName")))
     assert(name.parse("0name").isLeft) // names cannot start with a number
@@ -67,7 +70,9 @@ class ParserSuite extends FunSuite:
     // Object Value
     assert(clue(objectValue.parse("{}")) == Right("", ObjectValue(Nil)))
     assert(
-      clue(objectValue.parse("""{ name: "oli" }""")) == // TODO: Should be able to insert new lines
+      clue(objectValue.parse("""{ 
+        name: "oli" 
+      }""")) == // TODO: Should be able to insert new lines
         Right("", ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil))
     )
 
@@ -83,8 +88,8 @@ class ParserSuite extends FunSuite:
     assert(clue(listType.parse("[Int]")) == Right("", "[Int]"))
     assert(clue(listType.parse("[42]")).isLeft)
     assert(clue(nonNullType.parse("Int!")) == Right("", "Int!"))
-    assert(clue(_type.parse("[Int]")) == Right("", "[Int]"))
-    assert(clue(_type.parse("Int!")) == Right("", "Int!"))
+    assert(clue(tpe.parse("[Int]")) == Right("", "[Int]"))
+    assert(clue(tpe.parse("Int!")) == Right("", "Int!"))
 
     // Variable
     assert(clue(variableDefinition.parse("$thing:Int!=42")).isRight)
