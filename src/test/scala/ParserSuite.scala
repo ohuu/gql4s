@@ -165,13 +165,13 @@ class ParserSuite extends FunSuite:
   }
 
   test("fragments") {
-    val fieldIn  = "field"
-    val fieldOut = Field(None, Name("field"), Nil, Nil, Nil)
+    val field0    = "field"
+    val field0Res = Field(None, Name("field"), Nil, Nil, Nil)
 
-    val field1In = """field {
+    val field1 = """field {
       name
     }"""
-    val field1Out = Field(
+    val field1Res = Field(
       None,
       Name("field"),
       Nil,
@@ -234,8 +234,8 @@ class ParserSuite extends FunSuite:
 
     assert(clue(fragmentSpread.parse("...thing")) == Right("", FragmentSpread(Name("thing"), Nil)))
     assert(clue(fragmentSpread.parse("...on")).isLeft)
-    assert(clue(field.parse(fieldIn)) == Right("", fieldOut))
-    assert(clue(field.parse(field1In)) == Right("", field1Out))
+    assert(clue(field.parse(field0)) == Right("", field0Res))
+    assert(clue(field.parse(field1)) == Right("", field1Res))
     assert(clue(field.parse(field2)) == Right("", field2Res))
     assert(clue(fragmentDefinition.parse(fragDef)) == Right("", fragDefRes))
     assert(clue(fragmentDefinition.parse(frag1Def)) == Right("", frag1DefRes))

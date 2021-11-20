@@ -4,6 +4,8 @@
 
 package adt
 
+import java.rmi.server.Operation
+
 // Name
 case class Name(name: String)
 
@@ -43,7 +45,7 @@ case class FragmentDefinition(
     tpe: Type,
     directives: List[Directive],
     selectionSet: List[Selection]
-)
+) extends ExecutableDefinition
 enum Selection:
   case Field(
       alias: Option[Name],
@@ -58,3 +60,37 @@ enum Selection:
       selectionSet: List[Selection]
   )
   case FragmentSpread(name: Name, directives: List[Directive])
+
+// Operations
+enum OperationDefinition(
+    val name: Option[Name],
+    val variables: List[VariableDefinition],
+    val directives: List[Directive],
+    val selectionSet: List[Selection]
+) extends ExecutableDefinition:
+  case Query(
+      override val name: Option[Name],
+      override val variables: List[VariableDefinition],
+      override val directives: List[Directive],
+      override val selectionSet: List[Selection]
+  ) extends OperationDefinition(name, variables, directives, selectionSet)
+  case Mutation(
+      override val name: Option[Name],
+      override val variables: List[VariableDefinition],
+      override val directives: List[Directive],
+      override val selectionSet: List[Selection]
+  ) extends OperationDefinition(name, variables, directives, selectionSet)
+  case Subscription(
+      override val name: Option[Name],
+      override val variables: List[VariableDefinition],
+      override val directives: List[Directive],
+      override val selectionSet: List[Selection]
+  ) extends OperationDefinition(name, variables, directives, selectionSet)
+
+// Documents
+type Document           = List[Definition]
+type ExecutableDocument = List[ExecutableDefinition]
+
+trait Definition
+trait ExecutableDefinition            extends Definition
+trait TypeSystemDefinitionOrExtension extends Definition
