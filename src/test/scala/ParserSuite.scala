@@ -2,35 +2,44 @@ package parser
 
 import adt.*
 import adt.Value.*
+import adt.Selection.*
+import adt.Type.*
 import munit.FunSuite
 
 class ParserSuite extends FunSuite:
   test("comments") {
+    assert(clue(comment.parse("#")).isRight)
+    assert(clue(comment.parse("#comment")).isRight)
     assert(clue(comment.parse("# comment 0")).isRight)
+    assert(clue(comment.parse("")).isLeft)
   }
 
   test("names") {
+    assert(clue(name.parse("a")) == Right("", Name("a")))
     assert(clue(name.parse("_0myName")) == Right("", Name("_0myName")))
     assert(name.parse("0name").isLeft) // names cannot start with a number
+    assert(name.parse("").isLeft)
   }
 
   test("values") {
     // Int Value
-    assert(clue(integerPart.parse("-0")) == Right("", "-0"))
-    assert(clue(integerPart.parse("-1338")) == Right("", "-1338"))
-    assert(clue(intValue.parse("1338")) == Right("", IntValue(1338)))
+    assert(clue(value.parse("1")) == Right("", IntValue(1)))
+    assert(clue(value.parse("-0")) == Right("", IntValue(0)))
+    assert(clue(value.parse("-1338")) == Right("", IntValue(-1338)))
+    assert(clue(value.parse("1338")) == Right("", IntValue(1338)))
 
     // Float Value
-    assert(clue(exponentPart.parse("e-42")) == Right("", "e-42"))
-    assert(clue(fractionalPart.parse(".1337")) == Right("", ".1337"))
-    assert(clue(floatValue.parse("-42.1338")) == Right("", FloatValue(-42.1338)))
-    assert(clue(floatValue.parse("1338e-4")) == Right("", FloatValue(1338e-4)))
-    assert(clue(floatValue.parse("-42.0E+2")) == Right("", FloatValue(-42.0e+2)))
+    assert(clue(value.parse("0.0")) == Right("", FloatValue(0)))
+    assert(clue(value.parse("-1.9")) == Right("", FloatValue(-1.9)))
+    assert(clue(value.parse("10.55")) == Right("", FloatValue(10.55)))
+    assert(clue(value.parse("-42.1338")) == Right("", FloatValue(-42.1338)))
+    assert(clue(value.parse("1338e-4")) == Right("", FloatValue(1338e-4)))
+    assert(clue(value.parse("42.0E+2")) == Right("", FloatValue(42.0e+2)))
+    assert(clue(value.parse(".32")).isLeft)
 
     // Boolean Value
-    assert(clue(booleanValue.parse("true")) == Right("", BooleanValue(true)))
-    assert(clue(booleanValue.parse("false")) == Right("", BooleanValue(false)))
-    assert(clue(booleanValue.parse("tru")).isLeft)
+    assert(clue(value.parse("true")) == Right("", BooleanValue(true)))
+    assert(clue(value.parse("false")) == Right("", BooleanValue(false)))
 
     // String Value
     val strTest = List(
@@ -100,18 +109,21 @@ class ParserSuite extends FunSuite:
     assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
   }
 
-  test("type references") {
-    // Type Reference
-    assert(clue(listType.parse("[Int]")) == Right("", "[Int]"))
-    assert(clue(listType.parse("[42]")).isLeft)
-    assert(clue(nonNullType.parse("Int!")) == Right("", "Int!"))
-    assert(clue(tpe.parse("[Int]")) == Right("", "[Int]"))
-    assert(clue(tpe.parse("Int!")) == Right("", "Int!"))
-  }
+  // test("type references") {
+  //   // Type Reference
+  //   assert(clue(listType.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
+  //   assert(clue(listType.parse("[42]")).isLeft)
+  //   assert(clue(tpe.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
+  //   assert(clue(tpe.parse("Int!")) == Right("", NonNullType(Name("Int"))))
+  // }
 
   test("variables") {
     // Variable
-    assert(clue(variableDefinition.parse("$thing:Int!=42")).isRight)
+    assert(clue(variable.parse("$thing")) == Right("", Variable(Name("thing"))))
+    assert(
+      clue(variableDefinition.parse("$thing: Int! = 42")) ==
+        Right("", VariableDefinition(Name("thing"), NonNullType(Name("Int")), Some(IntValue(42))))
+    )
   }
 
   test("arguments") {
@@ -126,9 +138,13 @@ class ParserSuite extends FunSuite:
       )
     )
 
+    val test2    = "id: 4"
+    val test2Res = Argument(Name("id"), IntValue(4))
+
     // Argument
     assert(clue(argument.parse(test(0)._1)) == Right(test(0)._2))
     assert(clue(arguments.parse(test(1)._1)) == Right(test(1)._2))
+    assert(clue(argument.parse(test2)) == Right("", test2Res))
   }
 
   test("directives") {
@@ -146,4 +162,81 @@ class ParserSuite extends FunSuite:
 
     // Directive
     assert(clue(directive.parse(test(0)._1)) == Right(test(0)._2))
+  }
+
+  test("fragments") {
+    val fieldIn  = "field"
+    val fieldOut = Field(None, Name("field"), Nil, Nil, Nil)
+
+    val field1In = """field {
+      name
+    }"""
+    val field1Out = Field(
+      None,
+      Name("field"),
+      Nil,
+      Nil,
+      List(Field(None, Name("name"), Nil, Nil, Nil))
+    )
+
+    val field2 = """user(id:4) {
+      name
+    }"""
+    val field2Res = Field(
+      None,
+      Name("user"),
+      List(Argument(Name("id"), IntValue(4))),
+      Nil,
+      List(Field(None, Name("name"), Nil, Nil, Nil))
+    )
+
+    // TODO: test field with directives
+
+    val fragDef = """fragment friendFields on User {
+      id
+      name
+      ...standardProfilePic
+    }"""
+    val fragDefRes = FragmentDefinition(
+      Name("friendFields"),
+      NamedType(Name("User")),
+      Nil,
+      List(
+        Field(None, Name("id"), Nil, Nil, Nil),
+        Field(None, Name("name"), Nil, Nil, Nil),
+        FragmentSpread(Name("standardProfilePic"), Nil)
+      )
+    )
+
+    val frag1Def = """fragment friendFields on User {
+      id
+      name
+      ...mySpread
+      ... on Thing {
+        id
+      }
+    }"""
+    val frag1DefRes = FragmentDefinition(
+      Name("friendFields"),
+      NamedType(Name("User")),
+      Nil,
+      List(
+        Field(None, Name("id"), Nil, Nil, Nil),
+        Field(None, Name("name"), Nil, Nil, Nil),
+        FragmentSpread(Name("mySpread"), Nil),
+        InlineFragment(
+          Some(NamedType(Name("Thing"))),
+          Nil,
+          List(Field(None, Name("id"), Nil, Nil, Nil))
+        )
+      )
+    )
+
+    assert(clue(fragmentSpread.parse("...thing")) == Right("", FragmentSpread(Name("thing"), Nil)))
+    assert(clue(fragmentSpread.parse("...on")).isLeft)
+    assert(clue(field.parse(fieldIn)) == Right("", fieldOut))
+    assert(clue(field.parse(field1In)) == Right("", field1Out))
+    assert(clue(field.parse(field2)) == Right("", field2Res))
+    assert(clue(fragmentDefinition.parse(fragDef)) == Right("", fragDefRes))
+    assert(clue(fragmentDefinition.parse(frag1Def)) == Right("", frag1DefRes))
   }

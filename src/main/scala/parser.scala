@@ -5,9 +5,11 @@
 package parser
 
 import adt.*
+import adt.Selection.*
+import adt.Type.*
 import adt.Value.*
 import cats.parse.{Parser as P, Parser0 as P0}
-import cats.parse.Parser.{char, charIn, string, defer, defer0, until}
+import cats.parse.Parser.{char, charIn, defer, defer0, string, until}
 import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
 import cats.parse.Numbers.{digit, nonZeroDigit, signedIntString}
 
@@ -23,6 +25,7 @@ def betweenParas[T](p: P0[T]): P[T]   = char('(') *> ignore *> p <* ignore <* ch
 def betweenCurlys[T](p: P0[T]): P[T]  = char('{') *> ignore *> p <* ignore <* char('}')
 def betweenSquares[T](p: P0[T]): P[T] = char('[') *> ignore *> p <* ignore <* char(']')
 def betweenWsp[T](p: P[T]): P[T]      = wsp.rep0.with1 *> p <* wsp.rep0
+def betweenWspLn[T](p: P[T]): P[T]    = ignore.with1 *> p <* ignore
 
 // Unicode BOM
 val unicodeBom = char('\uFEFF')
@@ -42,12 +45,11 @@ val ignore = (unicodeBom | wsp | lineTerminator | comment | comma).rep0
 
 // Name
 val namePart = ((char('_') | alpha) ~ (char('_') | alpha | digit).rep0).string
-val name = namePart
-  .map(Name(_))
+val name     = betweenWspLn(namePart.map(Name(_)))
 
 // Int Value
 val negativeSign = char('-')
-val integerPart  = ((negativeSign.?).with1 ~ (char('0') | nonZeroDigit ~ digit.rep)).string
+val integerPart  = ((negativeSign.?).with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
 val intValue = integerPart.string
   .map(s => IntValue(s.toInt))
 
@@ -99,16 +101,21 @@ val objectValue = betweenCurlys((objectField <* ignore).rep0)
   .map(ObjectValue(_))
 
 // Type References
-val namedType           = name
-val listType: P[String] = (char('[') ~ defer(tpe) ~ char(']')).string
-val nonNullType         = ((namedType | listType) ~ char('!')).string
-val tpe                 = ((namedType | listType) ~ char('!').?).string
+val namedType         = name.map(NamedType(_))
+val listType: P[Type] = (char('[') *> defer(tpe) <* char(']')).map(ListType(_))
+val tpe = ((namedType | listType) ~ char('!').?).map {
+  case (parsedType, None) => parsedType
+  case (parsedType, _)    => NonNullType(parsedType.name)
+}
 
 // Variable
-val defaultValue        = (char('=') ~ betweenWsp(defer(value))).string
-val variable            = (char('$') *> name).map(Variable(_))
-val variableDefinition  = (variable ~ char(':') ~ tpe ~ defaultValue).string
-val variableDefinitions = betweenParas(variableDefinition.rep.string)
+val defaultValue          = betweenWsp(char('=')) *> betweenWspLn(defer(value))
+val variable: P[Variable] = (char('$') *> name).map(Variable(_))
+val variableDefinition =
+  (variable ~ (betweenWsp(char(':')) *> tpe) ~ defaultValue.?).map {
+    case Variable(name) -> tpe -> defaultValue => VariableDefinition(name, tpe, defaultValue)
+  }
+val variableDefinitions = betweenParas(variableDefinition.rep)
 
 val value =
   variable
@@ -123,8 +130,54 @@ val value =
 
 // Arguments
 val argument  = ((name <* betweenWsp(char(':'))) ~ value).map(Argument.apply.tupled)
-val arguments = betweenParas((argument <* ignore).rep0)
+val arguments = betweenWspLn(betweenParas((argument <* ignore).rep0))
 
 // Directives
 val directive  = (char('@') *> name ~ arguments.?).map(Directive.apply.tupled)
-val directives = directive.rep0
+val directives = directive.rep
+
+// Selection Set
+val selection: P[Selection] =
+  betweenWspLn(defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field))
+val selectionSet = betweenWspLn(betweenCurlys(selection.rep))
+
+// Fragments
+val typeCondition = betweenWsp(string("on")) *> namedType <* ignore
+val fragmentName  = (!string("on")).with1 *> betweenWsp(name)
+val fragmentDefinition =
+  (string("fragment") ~ ignore *> fragmentName ~ typeCondition ~ directives.? ~ selectionSet)
+    .map {
+      case (((name, tpe), None), sels) => FragmentDefinition(name, tpe, Nil, sels.toList)
+      case (((name, tpe), Some(dirs)), sels) =>
+        FragmentDefinition(name, tpe, dirs.toList, sels.toList)
+    }
+val fragmentSpread = (string("...") *> fragmentName ~ directives.?).map {
+  case (name, None)       => Selection.FragmentSpread(name, Nil)
+  case (name, Some(dirs)) => Selection.FragmentSpread(name, dirs.toList)
+}
+
+val inlineFragment = (string("...") *> typeCondition.? ~ directives.? ~ selectionSet).map {
+  case ((tpe, None), sels)       => InlineFragment(tpe, Nil, sels.toList)
+  case ((tpe, Some(dirs)), sels) => InlineFragment(tpe, dirs.toList, sels.toList)
+}
+
+// Fields
+val field = (name ~ (char(':') *> name).? ~ arguments.? ~ directives.? ~ selectionSet.?).map {
+  case name -> None -> args -> dirs -> sel =>
+    Field(
+      None,
+      name,
+      args.getOrElse(Nil),
+      dirs.map(_.toList).getOrElse(Nil),
+      sel.map(_.toList).getOrElse(Nil)
+    )
+
+  case alias -> Some(name) -> args -> dirs -> sel =>
+    Field(
+      Some(alias),
+      name,
+      args.getOrElse(Nil),
+      dirs.map(_.toList).getOrElse(Nil),
+      sel.map(_.toList).getOrElse(Nil)
+    )
+}
