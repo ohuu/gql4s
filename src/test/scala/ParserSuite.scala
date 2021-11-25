@@ -1,9 +1,11 @@
 package parser
 
 import adt.*
+import adt.OperationType.*
 import adt.Value.*
 import adt.Selection.*
 import adt.Type.*
+import cats.data.NonEmptyList
 import munit.FunSuite
 
 class ParserSuite extends FunSuite:
@@ -90,7 +92,7 @@ class ParserSuite extends FunSuite:
     val objTest = List(
       "{}" -> ("", ObjectValue(Nil)),
       """{
-        name: "oli" 
+        name: "oli"
       }""" -> (
         "",
         ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil)
@@ -109,16 +111,16 @@ class ParserSuite extends FunSuite:
     assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
   }
 
-  // test("type references") {
-  //   // Type Reference
-  //   assert(clue(listType.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
-  //   assert(clue(listType.parse("[42]")).isLeft)
-  //   assert(clue(tpe.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
-  //   assert(clue(tpe.parse("Int!")) == Right("", NonNullType(Name("Int"))))
-  // }
+  test("type references") {
+    // Type Reference
+    assert(clue(listType.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
+    assert(clue(listType.parse("[42]")).isLeft)
+    assert(clue(`type`.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
+    assert(clue(`type`.parse("Int!")) == Right("", NonNullType(Name("Int"))))
+  }
 
   test("variables") {
-    // Variable
+    // Variableiable
     assert(clue(variable.parse("$thing")) == Right("", Variable(Name("thing"))))
     assert(
       clue(variableDefinition.parse("$thing: Int! = 42")) ==
@@ -131,9 +133,9 @@ class ParserSuite extends FunSuite:
       "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue(42.5))),
       """( name: "oli", age: 38  )""" -> (
         "",
-        List(
+        NonEmptyList(
           Argument(Name("name"), StringValue("oli")),
-          Argument(Name("age"), IntValue(38))
+          Argument(Name("age"), IntValue(38)) :: Nil
         )
       )
     )
@@ -192,23 +194,25 @@ class ParserSuite extends FunSuite:
 
     // TODO: test field with directives
 
-    val fragDef = """fragment friendFields on User {
+    val fragmentDefinition0 = """fragment friendFields on User {
       id
       name
       ...standardProfilePic
     }"""
-    val fragDefRes = FragmentDefinition(
+    val fragmentDefinition0Res = FragmentDefinition(
       Name("friendFields"),
       NamedType(Name("User")),
       Nil,
-      List(
+      NonEmptyList(
         Field(None, Name("id"), Nil, Nil, Nil),
-        Field(None, Name("name"), Nil, Nil, Nil),
-        FragmentSpread(Name("standardProfilePic"), Nil)
+        List(
+          Field(None, Name("name"), Nil, Nil, Nil),
+          FragmentSpread(Name("standardProfilePic"), Nil)
+        )
       )
     )
 
-    val frag1Def = """fragment friendFields on User {
+    val fragment1Definition = """fragment friendFields on User {
       id
       name
       ...mySpread
@@ -216,18 +220,20 @@ class ParserSuite extends FunSuite:
         id
       }
     }"""
-    val frag1DefRes = FragmentDefinition(
+    val fragment1DefinitionRes = FragmentDefinition(
       Name("friendFields"),
       NamedType(Name("User")),
       Nil,
-      List(
+      NonEmptyList(
         Field(None, Name("id"), Nil, Nil, Nil),
-        Field(None, Name("name"), Nil, Nil, Nil),
-        FragmentSpread(Name("mySpread"), Nil),
-        InlineFragment(
-          Some(NamedType(Name("Thing"))),
-          Nil,
-          List(Field(None, Name("id"), Nil, Nil, Nil))
+        List(
+          Field(None, Name("name"), Nil, Nil, Nil),
+          FragmentSpread(Name("mySpread"), Nil),
+          InlineFragment(
+            Some(NamedType(Name("Thing"))),
+            Nil,
+            NonEmptyList.one(Field(None, Name("id"), Nil, Nil, Nil))
+          )
         )
       )
     )
@@ -237,6 +243,64 @@ class ParserSuite extends FunSuite:
     assert(clue(field.parse(field0)) == Right("", field0Res))
     assert(clue(field.parse(field1)) == Right("", field1Res))
     assert(clue(field.parse(field2)) == Right("", field2Res))
-    assert(clue(fragmentDefinition.parse(fragDef)) == Right("", fragDefRes))
-    assert(clue(fragmentDefinition.parse(frag1Def)) == Right("", frag1DefRes))
+    assert(clue(fragmentDefinition.parse(fragmentDefinition0)) == Right("", fragmentDefinition0Res))
+    assert(clue(fragmentDefinition.parse(fragment1Definition)) == Right("", fragment1DefinitionRes))
+  }
+
+  test("operations") {
+    val mutation = """mutation {
+      likeStory(storyID: 12345) {
+        story {
+          likeCount
+        }
+      }
+    }"""
+
+    val mutationRes = OperationDefinition(
+      Mutation,
+      name = None,
+      variableDefinitions = Nil,
+      directives = Nil,
+      selectionSet = NonEmptyList.one(
+        Field(
+          alias = None,
+          name = Name("likeStory"),
+          arguments = List(Argument(Name("storyID"), IntValue(12345))),
+          directives = Nil,
+          selectionSet = List(
+            Field(
+              alias = None,
+              name = Name("story"),
+              arguments = Nil,
+              directives = Nil,
+              selectionSet = List(
+                Field(
+                  alias = None,
+                  name = Name("likeCount"),
+                  arguments = Nil,
+                  directives = Nil,
+                  selectionSet = Nil
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+
+    val anonQuery = """{
+      field
+    }"""
+    val anonQueryRes =
+      OperationDefinition(
+        Query,
+        None,
+        Nil,
+        Nil,
+        NonEmptyList.one(Field(None, Name("field"), Nil, Nil, Nil))
+      )
+
+    assert(clue(operationType.parse("mutation ")).isRight)
+    assert(clue(operationDefinition.parse(mutation)) == Right("", mutationRes))
+    assert(clue(operationDefinition.parse(anonQuery)) == Right("", anonQueryRes))
   }

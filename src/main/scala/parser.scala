@@ -5,21 +5,18 @@
 package parser
 
 import adt.*
-import adt.OperationDefinition.*
+import adt.InterfaceTypeExtension.*
+import adt.ObjectTypeExtension.*
+import adt.OperationType.*
 import adt.Selection.*
 import adt.Type.*
 import adt.Value.*
+import cats.data.NonEmptyList
+import cats.parse.*
 import cats.parse.{Parser as P, Parser0 as P0}
 import cats.parse.Parser.{char, charIn, defer, defer0, string, until}
 import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
 import cats.parse.Numbers.{digit, nonZeroDigit, signedIntString}
-
-// Surrounds
-// def betweenParas[T](p: P0[T]): P[T]   = char('(') *> ignore *> p <* ignore <* char(')')
-// def betweenCurlys[T](p: P0[T]): P[T]  = char('{') *> ignore *> p <* ignore <* char('}')
-// def betweenSquares[T](p: P0[T]): P[T] = char('[') *> ignore *> p <* ignore <* char(']')
-// def betweenWsp[T](p: P[T]): P[T]      = wsp.rep0.with1 *> p <* wsp.rep0
-// def betweenWspLn[T](p: P[T]): P[T]    = ignore.with1 *> p <* ignore
 
 // Source Character
 val except = charIn('\u0000' to '\u0008')
@@ -42,16 +39,16 @@ val comment     = (char('#') ~ commentChar.rep0).void
 val comma = char(',')
 
 // Ignore
-val ignore = (unicodeBom | wsp | lineTerminator | comment | comma).rep0
+val __ = (unicodeBom | wsp | lineTerminator | comment | comma).rep0.void
 
 // Name
-val namePart = ((char('_') | alpha) ~ (char('_') | alpha | digit).rep0).string
-val name     = namePart.map(Name(_))
+val namePart  = ((char('_') | alpha) ~ (char('_') | alpha | digit).rep0).string
+val nameStart = alpha
+val name      = namePart.map(Name(_))
 
 // Int Value
-val negativeSign = char('-')
-val integerPart  = ((negativeSign.?).with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
-val intValue     = integerPart.string.map(s => IntValue(s.toInt))
+val integerPart = (char('-').?.with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
+val intValue    = integerPart.string.map(s => IntValue(s.toInt))
 
 // Float Value
 val sign              = charIn('-', '+')
@@ -59,8 +56,10 @@ val exponentIndicator = charIn('e', 'E')
 val exponentPart      = (exponentIndicator ~ sign.? ~ digit.rep).string
 val fractionalPart    = (char('.') ~ digit.rep).string
 val floatValue =
-  (integerPart ~ (exponentPart | fractionalPart ~ exponentPart.?)).string
-    .map(s => FloatValue(s.toFloat))
+  (integerPart ~ (exponentPart | (fractionalPart ~ exponentPart.?)) ~
+    !(char('.') | nameStart)).string
+    .map(_.toFloat)
+    .map(FloatValue(_))
 
 // Boolean Value
 val booleanValue = (string("true") | string("false")).string
@@ -82,41 +81,37 @@ val stringValue =
     .map(StringValue(_))
 
 // Null Value
-val nullValue = string("null")
-  .map(_ => NullValue)
+val nullValue = string("null").map(_ => NullValue)
 
 // Enum Value
-val enumValue = ((!(booleanValue | nullValue)).with1 *> name)
-  .map(EnumValue(_))
+val enumValue = ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
 
 // List Value
-val listValue: P[Value] =
-  (char('[') ~ ignore *> (defer(value) <* ignore).rep0 <* char(']'))
-    .map(_.toList)
-    .map(ListValue(_))
+val listValue: P[ListValue] = (char('[') ~ __ *> (defer(value) <* __).rep0 <* char(']'))
+  .map(ListValue(_))
 
 // Object Value
-val objectField: P[ObjectField] = ((name <* (ignore ~ char(':') ~ ignore)) ~ defer(value))
-  .map(ObjectField.apply.tupled)
-val objectValue =
-  (char('{') ~ ignore *> (objectField <* ignore).rep0 <* char('}')).map(ObjectValue(_))
+val objectField: P[ObjectField] = ((name <* __ ~ char(':') ~ __) ~ defer(value)).map {
+  case name -> value => ObjectField(name, value)
+}
+val objectValue = (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(ObjectValue(_))
 
 // Type References
-val namedType         = name.map(NamedType(_))
-val listType: P[Type] = (char('[') ~ ignore *> defer(tpe) <* ignore ~ char(']')).map(ListType(_))
-val tpe = ((namedType | listType) ~ (ignore *> char('!')).?).map {
-  case (parsedType, None) => parsedType
-  case (parsedType, _)    => NonNullType(parsedType.name)
+val namedType: P[NamedType] = name.map(NamedType(_))
+val listType: P[Type]       = (char('[') ~ __ *> defer(`type`) <* char(']')).map(ListType(_))
+val `type` = ((namedType | listType) ~ (__ *> char('!')).?).map {
+  case (tpe, None) => tpe
+  case (tpe, _)    => NonNullType(tpe.name)
 }
 
 // Variable
-val defaultValue          = char('=') ~ ignore *> defer(value)
-val variable: P[Variable] = (char('$') ~ ignore *> name).map(Variable(_))
-val variableDefinition =
-  (variable ~ (ignore ~ char(':') ~ ignore *> tpe <* ignore) ~ defaultValue.?).map {
-    case Variable(name) -> tpe -> defaultValue => VariableDefinition(name, tpe, defaultValue)
-  }
-val variableDefinitions = char('(') ~ ignore *> (variableDefinition <* ignore).rep <* char(')')
+val defaultValue          = (char('=') ~ __ *> defer(value))
+val variable: P[Variable] = char('$') ~ __ *> name.map(Variable(_))
+val variableDefinition = ((variable <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ defaultValue.?).map {
+  case Variable(name) -> tpe -> defaultValue => VariableDefinition(name, tpe, defaultValue)
+}
+val variableDefinitions  = (char('(') ~ __ *> (variableDefinition <* __).rep <* char(')'))
+val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(Nil))
 
 val value =
   variable
@@ -130,101 +125,166 @@ val value =
     | objectValue
 
 // Arguments
-val argument  = ((name <* (ignore ~ char(':') ~ ignore)) ~ value).map(Argument.apply.tupled)
-val arguments = char('(') ~ ignore *> (argument <* ignore).rep0 <* char(')')
+val argument = ((name <* __ ~ char(':') ~ __) ~ value).map { case name -> value =>
+  Argument(name, value)
+}
+val arguments  = (char('(') ~ __ *> (argument <* __).rep <* char(')'))
+val arguments0 = arguments.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Directives
-val directive  = (char('@') ~ ignore *> name ~ (ignore *> arguments.?)).map(Directive.apply.tupled)
-val directives = (directive <* ignore).rep
+val directive = (char('@') ~ __ *> (name <* __) ~ arguments0).map { case name -> arguments =>
+  Directive(name, arguments)
+}
+val directives  = (directive <* __).rep
+val directives0 = (directive <* __).rep0
 
 // Selection Set
 val selection: P[Selection] = defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
-val selectionSet            = char('{') ~ ignore *> (selection <* ignore).rep <* char('}')
+val selectionSet            = (char('{') ~ __ *> (selection <* __).rep <* char('}'))
+val selectionSet0           = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Fragments
-val typeCondition = string("on") ~ ignore *> namedType
+val fragment      = string("fragment")
+val typeCondition = string("on") ~ __ *> namedType
 val fragmentName  = (!string("on")).with1 *> name
 val fragmentDefinition =
-  (
-    string("fragment") ~ ignore *> (fragmentName <* ignore) ~ (typeCondition <* ignore) ~
-      directives.? ~ (selectionSet <* ignore)
-  ).map {
-    case name -> tpe -> None -> sels => FragmentDefinition(name, tpe, Nil, sels.toList)
-    case name -> tpe -> Some(dirs) -> sels =>
-      FragmentDefinition(name, tpe, dirs.toList, sels.toList)
-  }
-val fragmentSpread = (string("...") ~ ignore *> (fragmentName <* ignore) ~ directives.?).map {
-  case (name, None)       => Selection.FragmentSpread(name, Nil)
-  case (name, Some(dirs)) => Selection.FragmentSpread(name, dirs.toList)
-}
-
-val inlineFragment =
-  (string("...") ~ ignore *> (typeCondition.? <* ignore) ~ directives.? ~ (selectionSet <* ignore))
-    .map {
-      case ((tpe, None), sels)       => InlineFragment(tpe, Nil, sels.toList)
-      case ((tpe, Some(dirs)), sels) => InlineFragment(tpe, dirs.toList, sels.toList)
+  ((fragment ~ __) *> (fragmentName <* __) ~ (typeCondition <* __) ~ (directives0 <* __) ~ selectionSet)
+    .map { case name -> typeCondition -> directives -> selectionSet =>
+      FragmentDefinition(name, typeCondition, directives, selectionSet)
     }
+val fragmentSpread = (string("...") ~ __ *> (fragmentName <* __) ~ directives0).map {
+  case name -> directives => FragmentSpread(name, directives)
+}
+val inlineFragment =
+  (string("...") ~ __ *> (typeCondition.? <* __) ~ (directives0 <* __) ~ selectionSet).map {
+    case tpe -> directives -> selectionSet => InlineFragment(tpe, directives, selectionSet)
+  }
 
 // Fields
-val withAlias = (char(':') *> ignore) *> name
+val withAlias = (char(':') *> __) *> name
 val field =
-  (
-    (name <* ignore) ~ (withAlias.? <* ignore) ~ (arguments.? <* ignore) ~
-      directives.? ~ (selectionSet.? <* ignore)
-  )
+  ((name <* __) ~ (withAlias.? <* __) ~ (arguments0 <* __) ~ (directives0 <* __) ~ selectionSet0)
     .map {
-      case name -> None -> args -> dirs -> sel =>
-        Field(
-          None,
-          name,
-          args.getOrElse(Nil),
-          dirs.map(_.toList).getOrElse(Nil),
-          sel.map(_.toList).getOrElse(Nil)
-        )
-
-      case alias -> Some(name) -> args -> dirs -> sel =>
-        Field(
-          Some(alias),
-          name,
-          args.getOrElse(Nil),
-          dirs.map(_.toList).getOrElse(Nil),
-          sel.map(_.toList).getOrElse(Nil)
-        )
+      case name -> None -> arguments -> directives -> selectionSet =>
+        Field(None, name, arguments, directives, selectionSet)
+      case alias -> Some(name) -> arguments -> directives -> selectionSet =>
+        Field(Some(alias), name, arguments, directives, selectionSet)
     }
 
 // Operations
-val operationType =
-  ((string("query") | string("mutation") | string("subscription")) <* ignore).string
-val operationDefinition: P[OperationDefinition] =
-  ((operationType ~ (name.? <* ignore) ~ (variableDefinitions.? <* ignore) ~ directives.?).?.with1 ~ (selectionSet <* ignore))
+val query         = string("query").map(_ => Query)
+val mutation      = string("mutation").map(_ => Mutation)
+val subscription  = string("subscription").map(_ => Subscription)
+val operationType = query | mutation | subscription
+val operationDefinition =
+  (((operationType <* __) ~ (name.? <* __) ~ (variableDefinitions0 <* __) ~ (directives0 <* __)).?.with1 ~ selectionSet)
     .map {
-      case None -> sel => Query(None, Nil, Nil, Nil)
-      case Some("query" -> name -> vars -> dirs) -> sel =>
-        Query(
-          name,
-          vars.map(_.toList).getOrElse(Nil),
-          dirs.map(_.toList).getOrElse(Nil),
-          sel.toList
-        )
-      case Some("mutation" -> name -> vars -> dirs) -> sel =>
-        Mutation(
-          name,
-          vars.map(_.toList).getOrElse(Nil),
-          dirs.map(_.toList).getOrElse(Nil),
-          sel.toList
-        )
-      case Some("subscription" -> name -> vars -> dirs) -> sel =>
-        Subscription(
-          name,
-          vars.map(_.toList).getOrElse(Nil),
-          dirs.map(_.toList).getOrElse(Nil),
-          sel.toList
-        )
+      case None -> selectionSet => OperationDefinition(Query, None, Nil, Nil, selectionSet)
+      case Some(operationType -> name -> variableDefinitions -> directives) -> selectionSet =>
+        OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet)
     }
 
 // Document
 val executableDefinition = operationDefinition | fragmentDefinition
-val executableDocument   = ignore *> (executableDefinition <* ignore).rep
+val executableDocument   = __ *> (executableDefinition <* __).rep
 
-val definition: P[Definition] = executableDefinition /* | typeSystemDefinitionOrExtention */
-val document                  = ignore *> (definition <* ignore).rep
+val definition: P[Definition] = executableDefinition /* | tpeSysDefOrExt */
+val document                  = __ *> (definition <* __).rep
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Type System
+
+// Description
+val desc = (stringValue.? ~ __).void.with1
+
+// Schema
+val schema = string("schema")
+val rootOperationTypeDefinition = ((operationType <* __ ~ char(':') ~ __) ~ namedType).map {
+  case operationType -> namedType => RootOperationTypeDefinition(operationType, namedType)
+}
+val rootOperationTypeDefinitions =
+  (char('{') ~ __).with1 *> (rootOperationTypeDefinition <* __).rep <* char('}')
+val schemaDefinition =
+  ((desc ~ schema ~ __) *> (directives0 <* __).with1 ~ rootOperationTypeDefinitions)
+    .map { case directives -> rootOperationTypeDefinitions =>
+      SchemaDefinition(directives, rootOperationTypeDefinitions)
+    }
+
+// Type Definitions
+val extend = (string("extend")).void
+
+// Scalar
+val scalar = (string("scalar")).void
+val scalarTypeDefinition = (desc ~ scalar ~ __ *> (name <* __) ~ directives0).map {
+  case name -> directives => ScalarTypeDefinition(name, directives)
+}
+val scalarTpeExt = ((desc ~ extend ~ __ ~ scalar ~ __) *> (name <* __) ~ directives)
+  .map { case name -> directives => ScalarTypeExtension(name, directives) }
+
+// Object
+val inputValueDefinition =
+  (desc *> (name <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ (defaultValue.? <* __) ~ directives0)
+    .map { case name -> tpe -> defaultValue -> directives =>
+      InputValueDefinition(name, tpe, defaultValue, directives)
+    }
+val argumentsDefinition  = char('(') ~ __ *> (inputValueDefinition <* __).rep <* char(')')
+val argumentsDefinition0 = argumentsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
+val fieldDefinition =
+  (desc *>
+    (name <* __) ~ (argumentsDefinition0 <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ directives0)
+    .map { case name -> argumentsDefinition -> tpe -> directives =>
+      FieldDefinition(name, argumentsDefinition, tpe, directives)
+    }
+val fieldsDefinition  = char('{') ~ __ *> (fieldDefinition <* __).rep <* char('}')
+val fieldsDefinition0 = fieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
+val implements        = (string("implements") ~ __ ~ char('&').? ~ __).void
+val implementsInterfaces =
+  (implements *> (namedType <* __) ~ (char('&') ~ __ *> namedType <* __).rep0)
+    .map { case tpe -> tpes => NonEmptyList.fromListUnsafe(tpe :: tpes) }
+val implementsInterfaces0 = implementsInterfaces.?.map(_.map(_.toList).getOrElse(Nil))
+
+// // TODO: not sure about the fieldsDefOpt thing
+val objectTypeDefinition =
+  (desc ~ string("type") ~ __ *>
+    (name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition0).map {
+    case name -> implementsInterfaces -> directives -> fieldsDefinition =>
+      ObjectTypeDefinition(name, implementsInterfaces, directives, fieldsDefinition)
+  }
+
+val extendType = (string("extend") ~ __ ~ string("type") ~ __).void
+val objectTypeExtension0 =
+  ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
+    case name -> impls -> dirs -> fields => ObjectTypeExtension0(name, impls, dirs, fields)
+  }
+val objectTypeExtension1 =
+  ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
+    case name -> impls -> dirs => ObjectTypeExtension1(name, impls, dirs)
+  }
+val objectTypeExtension2 = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
+  case name -> impls => ObjectTypeExtension2(name, impls)
+}
+val objectTypeExtension =
+  extendType *> (objectTypeExtension0.backtrack | objectTypeExtension1.backtrack | objectTypeExtension2)
+
+// Interfaces
+val interfaceTypedefinition =
+  (desc ~ string("interface") ~ __ *> (name <* __) ~
+    (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition0 <* !char('{'))
+    .map { case name -> impls -> dirs -> fields =>
+      InterfaceTypeDefinition(name, impls, dirs, fields)
+    }
+
+val extendInterface = (string("extend") ~ __ ~ string("interface") ~ __).void
+val interfaceTypeExtension0 =
+  ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
+    case name -> impls -> dirs -> fields => InterfaceTypeExtension0(name, impls, dirs, fields)
+  }
+val interfaceTypeExtension1 =
+  ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
+    case name -> impls -> dirs => InterfaceTypeExtension1(name, impls, dirs)
+  }
+val interfaceTypeExtension2 = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
+  case name -> impls => InterfaceTypeExtension2(name, impls)
+}
+val interfaceTypeExtension =
+  extendInterface *> (interfaceTypeExtension0.backtrack | interfaceTypeExtension1.backtrack | interfaceTypeExtension2)

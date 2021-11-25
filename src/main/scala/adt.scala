@@ -4,7 +4,7 @@
 
 package adt
 
-import java.rmi.server.Operation
+import cats.data.NonEmptyList
 
 // Name
 case class Name(name: String)
@@ -28,69 +28,122 @@ enum Value:
   case ListValue(values: List[Value])
   case EnumValue(name: Name)
   case ObjectValue(fields: List[ObjectField])
-end Value
 
 // Argument
 case class Argument(name: Name, value: Value)
 
 // Directive
-object Directive {
-  def apply(name: Name, args: Option[List[Argument]]) = new Directive(name, args.getOrElse(Nil))
-}
-case class Directive(name: Name, args: List[Argument])
+case class Directive(name: Name, arguments: List[Argument])
 
 // Fragments
 case class FragmentDefinition(
     name: Name,
     tpe: Type,
     directives: List[Directive],
-    selectionSet: List[Selection]
+    selectionSet: NonEmptyList[Selection]
 ) extends ExecutableDefinition
+
 enum Selection:
   case Field(
       alias: Option[Name],
       name: Name,
-      args: List[Argument],
-      dirs: List[Directive],
-      sels: List[Selection]
+      arguments: List[Argument],
+      directives: List[Directive],
+      selectionSet: List[Selection]
   )
   case InlineFragment(
       tpe: Option[Type],
       directives: List[Directive],
-      selectionSet: List[Selection]
+      selectionSet: NonEmptyList[Selection]
   )
-  case FragmentSpread(name: Name, directives: List[Directive])
+  case FragmentSpread(name: Name, directivess: List[Directive])
 
 // Operations
-enum OperationDefinition(
-    val name: Option[Name],
-    val variables: List[VariableDefinition],
-    val directives: List[Directive],
-    val selectionSet: List[Selection]
-) extends ExecutableDefinition:
-  case Query(
-      override val name: Option[Name],
-      override val variables: List[VariableDefinition],
-      override val directives: List[Directive],
-      override val selectionSet: List[Selection]
-  ) extends OperationDefinition(name, variables, directives, selectionSet)
-  case Mutation(
-      override val name: Option[Name],
-      override val variables: List[VariableDefinition],
-      override val directives: List[Directive],
-      override val selectionSet: List[Selection]
-  ) extends OperationDefinition(name, variables, directives, selectionSet)
-  case Subscription(
-      override val name: Option[Name],
-      override val variables: List[VariableDefinition],
-      override val directives: List[Directive],
-      override val selectionSet: List[Selection]
-  ) extends OperationDefinition(name, variables, directives, selectionSet)
+enum OperationType:
+  case Query, Mutation, Subscription
+
+case class OperationDefinition(
+    operationType: OperationType,
+    name: Option[Name],
+    variableDefinitions: List[VariableDefinition],
+    directives: List[Directive],
+    selectionSet: NonEmptyList[Selection]
+) extends ExecutableDefinition
 
 // Documents
-type Document           = List[Definition]
-type ExecutableDocument = List[ExecutableDefinition]
+type Document           = NonEmptyList[Definition]
+type ExecutableDocument = NonEmptyList[ExecutableDefinition]
 
 trait Definition
 trait ExecutableDefinition            extends Definition
 trait TypeSystemDefinitionOrExtension extends Definition
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Type System
+case class RootOperationTypeDefinition(operationType: OperationType, namedType: Type.NamedType)
+case class SchemaDefinition(
+    directives: List[Directive],
+    rootOperationTypeDefinition: NonEmptyList[RootOperationTypeDefinition]
+)
+
+case class ScalarTypeDefinition(name: Name, directivess: List[Directive])
+case class ScalarTypeExtension(name: Name, directives: NonEmptyList[Directive])
+
+case class InputValueDefinition(
+    name: Name,
+    tpe: Type,
+    defaultValue: Option[Value],
+    directives: List[Directive]
+)
+case class FieldDefinition(
+    name: Name,
+    argumentsDefinition: List[InputValueDefinition],
+    tpe: Type,
+    directives: List[Directive]
+)
+case class ObjectTypeDefinition(
+    name: Name,
+    implementsInterfaces: List[Type.NamedType],
+    directives: List[Directive],
+    fieldsDefintion: List[FieldDefinition]
+)
+enum ObjectTypeExtension(val name: Name):
+  case ObjectTypeExtension0(
+      override val name: Name,
+      implementsInterfaces: List[Type.NamedType],
+      directives: List[Directive],
+      fieldsDefinition: NonEmptyList[FieldDefinition]
+  ) extends ObjectTypeExtension(name)
+  case ObjectTypeExtension1(
+      override val name: Name,
+      implementsInterfaces: List[Type.NamedType],
+      directives: NonEmptyList[Directive]
+  ) extends ObjectTypeExtension(name)
+  case ObjectTypeExtension2(
+      override val name: Name,
+      implementsInterfaces: NonEmptyList[Type.NamedType]
+  ) extends ObjectTypeExtension(name)
+
+case class InterfaceTypeDefinition(
+    name: Name,
+    implementsInterfaces: List[Type.NamedType],
+    directives: List[Directive],
+    fieldsDefinition: List[FieldDefinition]
+)
+
+enum InterfaceTypeExtension(val name: Name):
+  case InterfaceTypeExtension0(
+      override val name: Name,
+      implementsInterfaces: List[Type.NamedType],
+      directives: List[Directive],
+      fieldsDefinition: NonEmptyList[FieldDefinition]
+  ) extends InterfaceTypeExtension(name)
+  case InterfaceTypeExtension1(
+      override val name: Name,
+      implementsInterfaces: List[Type.NamedType],
+      directives: NonEmptyList[Directive]
+  ) extends InterfaceTypeExtension(name)
+  case InterfaceTypeExtension2(
+      override val name: Name,
+      implementsInterfaces: NonEmptyList[Type.NamedType]
+  ) extends InterfaceTypeExtension(name)
