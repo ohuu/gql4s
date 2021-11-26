@@ -2,21 +2,95 @@
 // This software is licensed under the MIT License (MIT).
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
-package parser
+package parsers
 
-import adt.*
-import adt.InterfaceTypeExtension.*
-import adt.ObjectTypeExtension.*
-import adt.OperationType.*
-import adt.Selection.*
-import adt.Type.*
-import adt.Value.*
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// AST
 import cats.data.NonEmptyList
-import cats.parse.*
+
+// Name
+case class Name(name: String)
+
+// Type
+enum Type(val name: Name):
+  case NamedType(n: Name) extends Type(n)
+  case NonNullType(n: Name) extends Type(n)
+  case ListType(tpe: Type) extends Type(tpe.name)
+
+// Value
+case class VariableDefinition(name: Name, tpe: Type, defaultValue: Option[Value])
+case class ObjectField(name: Name, value: Value)
+enum Value:
+  case Variable(name: Name)
+  case IntValue(value: Int)
+  case FloatValue(value: Float)
+  case StringValue(value: String)
+  case BooleanValue(value: Boolean)
+  case NullValue
+  case ListValue(values: List[Value])
+  case EnumValue(name: Name)
+  case ObjectValue(fields: List[ObjectField])
+
+// Argument
+case class Argument(name: Name, value: Value)
+
+// Directive
+case class Directive(name: Name, arguments: List[Argument])
+
+// Fragments
+case class FragmentDefinition(
+    name: Name,
+    tpe: Type,
+    directives: List[Directive],
+    selectionSet: NonEmptyList[Selection]
+) extends ExecutableDefinition
+
+enum Selection:
+  case Field(
+      alias: Option[Name],
+      name: Name,
+      arguments: List[Argument],
+      directives: List[Directive],
+      selectionSet: List[Selection]
+  )
+  case InlineFragment(
+      tpe: Option[Type],
+      directives: List[Directive],
+      selectionSet: NonEmptyList[Selection]
+  )
+  case FragmentSpread(name: Name, directivess: List[Directive])
+
+// Operations
+enum OperationType:
+  case Query, Mutation, Subscription
+
+case class OperationDefinition(
+    operationType: OperationType,
+    name: Option[Name],
+    variableDefinitions: List[VariableDefinition],
+    directives: List[Directive],
+    selectionSet: NonEmptyList[Selection]
+) extends ExecutableDefinition
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Parsers
 import cats.parse.{Parser as P, Parser0 as P0}
-import cats.parse.Parser.{char, charIn, defer, defer0, string, until}
+import cats.parse.Parser.{char, charIn, defer, string}
 import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
-import cats.parse.Numbers.{digit, nonZeroDigit, signedIntString}
+import cats.parse.Numbers.{digit, nonZeroDigit}
+
+import OperationType.*
+import Selection.*
+import Type.*
+import Value.*
+
+// Documents
+type Document           = NonEmptyList[Definition]
+type ExecutableDocument = NonEmptyList[ExecutableDefinition]
+
+trait Definition
+trait ExecutableDefinition            extends Definition
+trait TypeSystemDefinitionOrExtension extends Definition
 
 // Source Character
 val except = charIn('\u0000' to '\u0008')
@@ -84,7 +158,7 @@ val stringValue =
 val nullValue = string("null").map(_ => NullValue)
 
 // Enum Value
-val enumValue = ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
+val enumValue: P[EnumValue] = ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
 
 // List Value
 val listValue: P[ListValue] = (char('[') ~ __ *> (defer(value) <* __).rep0 <* char(']'))
@@ -188,103 +262,5 @@ val operationDefinition =
 val executableDefinition = operationDefinition | fragmentDefinition
 val executableDocument   = __ *> (executableDefinition <* __).rep
 
-val definition: P[Definition] = executableDefinition /* | tpeSysDefOrExt */
+val definition: P[Definition] = executableDefinition /* | typeSystemDefinitionOrExtension */
 val document                  = __ *> (definition <* __).rep
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Type System
-
-// Description
-val desc = (stringValue.? ~ __).void.with1
-
-// Schema
-val schema = string("schema")
-val rootOperationTypeDefinition = ((operationType <* __ ~ char(':') ~ __) ~ namedType).map {
-  case operationType -> namedType => RootOperationTypeDefinition(operationType, namedType)
-}
-val rootOperationTypeDefinitions =
-  (char('{') ~ __).with1 *> (rootOperationTypeDefinition <* __).rep <* char('}')
-val schemaDefinition =
-  ((desc ~ schema ~ __) *> (directives0 <* __).with1 ~ rootOperationTypeDefinitions)
-    .map { case directives -> rootOperationTypeDefinitions =>
-      SchemaDefinition(directives, rootOperationTypeDefinitions)
-    }
-
-// Type Definitions
-val extend = (string("extend")).void
-
-// Scalar
-val scalar = (string("scalar")).void
-val scalarTypeDefinition = (desc ~ scalar ~ __ *> (name <* __) ~ directives0).map {
-  case name -> directives => ScalarTypeDefinition(name, directives)
-}
-val scalarTpeExt = ((desc ~ extend ~ __ ~ scalar ~ __) *> (name <* __) ~ directives)
-  .map { case name -> directives => ScalarTypeExtension(name, directives) }
-
-// Object
-val inputValueDefinition =
-  (desc *> (name <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ (defaultValue.? <* __) ~ directives0)
-    .map { case name -> tpe -> defaultValue -> directives =>
-      InputValueDefinition(name, tpe, defaultValue, directives)
-    }
-val argumentsDefinition  = char('(') ~ __ *> (inputValueDefinition <* __).rep <* char(')')
-val argumentsDefinition0 = argumentsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
-val fieldDefinition =
-  (desc *>
-    (name <* __) ~ (argumentsDefinition0 <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ directives0)
-    .map { case name -> argumentsDefinition -> tpe -> directives =>
-      FieldDefinition(name, argumentsDefinition, tpe, directives)
-    }
-val fieldsDefinition  = char('{') ~ __ *> (fieldDefinition <* __).rep <* char('}')
-val fieldsDefinition0 = fieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
-val implements        = (string("implements") ~ __ ~ char('&').? ~ __).void
-val implementsInterfaces =
-  (implements *> (namedType <* __) ~ (char('&') ~ __ *> namedType <* __).rep0)
-    .map { case tpe -> tpes => NonEmptyList.fromListUnsafe(tpe :: tpes) }
-val implementsInterfaces0 = implementsInterfaces.?.map(_.map(_.toList).getOrElse(Nil))
-
-// // TODO: not sure about the fieldsDefOpt thing
-val objectTypeDefinition =
-  (desc ~ string("type") ~ __ *>
-    (name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition0).map {
-    case name -> implementsInterfaces -> directives -> fieldsDefinition =>
-      ObjectTypeDefinition(name, implementsInterfaces, directives, fieldsDefinition)
-  }
-
-val extendType = (string("extend") ~ __ ~ string("type") ~ __).void
-val objectTypeExtension0 =
-  ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
-    case name -> impls -> dirs -> fields => ObjectTypeExtension0(name, impls, dirs, fields)
-  }
-val objectTypeExtension1 =
-  ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
-    case name -> impls -> dirs => ObjectTypeExtension1(name, impls, dirs)
-  }
-val objectTypeExtension2 = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
-  case name -> impls => ObjectTypeExtension2(name, impls)
-}
-val objectTypeExtension =
-  extendType *> (objectTypeExtension0.backtrack | objectTypeExtension1.backtrack | objectTypeExtension2)
-
-// Interfaces
-val interfaceTypedefinition =
-  (desc ~ string("interface") ~ __ *> (name <* __) ~
-    (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition0 <* !char('{'))
-    .map { case name -> impls -> dirs -> fields =>
-      InterfaceTypeDefinition(name, impls, dirs, fields)
-    }
-
-val extendInterface = (string("extend") ~ __ ~ string("interface") ~ __).void
-val interfaceTypeExtension0 =
-  ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
-    case name -> impls -> dirs -> fields => InterfaceTypeExtension0(name, impls, dirs, fields)
-  }
-val interfaceTypeExtension1 =
-  ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
-    case name -> impls -> dirs => InterfaceTypeExtension1(name, impls, dirs)
-  }
-val interfaceTypeExtension2 = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
-  case name -> impls => InterfaceTypeExtension2(name, impls)
-}
-val interfaceTypeExtension =
-  extendInterface *> (interfaceTypeExtension0.backtrack | interfaceTypeExtension1.backtrack | interfaceTypeExtension2)

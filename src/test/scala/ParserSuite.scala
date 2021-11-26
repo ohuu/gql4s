@@ -1,12 +1,16 @@
-package parser
+// Copyright (c) 2018-2021 by Oli Winks
+// This software is licensed under the MIT License (MIT).
+// For more information see LICENSE or https://opensource.org/licenses/MIT
 
-import adt.*
-import adt.OperationType.*
-import adt.Value.*
-import adt.Selection.*
-import adt.Type.*
+package parsers
+
 import cats.data.NonEmptyList
 import munit.FunSuite
+
+import OperationType.*
+import Selection.*
+import Type.*
+import Value.*
 
 class ParserSuite extends FunSuite:
   test("comments") {
@@ -303,4 +307,10 @@ class ParserSuite extends FunSuite:
     assert(clue(operationType.parse("mutation ")).isRight)
     assert(clue(operationDefinition.parse(mutation)) == Right("", mutationRes))
     assert(clue(operationDefinition.parse(anonQuery)) == Right("", anonQueryRes))
+  }
+
+  test("union") {
+    val test1    = "= Dog"
+    val test1Res = List(NamedType(Name("Dog")))
+    assert(clue(unionMemberType.parse(test1)) == Right("", test1Res))
   }
