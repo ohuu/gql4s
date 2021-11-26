@@ -12,7 +12,7 @@ import Selection.*
 import Type.*
 import Value.*
 
-class ParserSuite extends FunSuite:
+class QueryParserSuite extends FunSuite:
   test("comments") {
     assert(clue(comment.parse("#")).isRight)
     assert(clue(comment.parse("#comment")).isRight)
@@ -307,10 +307,4 @@ class ParserSuite extends FunSuite:
     assert(clue(operationType.parse("mutation ")).isRight)
     assert(clue(operationDefinition.parse(mutation)) == Right("", mutationRes))
     assert(clue(operationDefinition.parse(anonQuery)) == Right("", anonQueryRes))
-  }
-
-  test("union") {
-    val test1    = "= Dog"
-    val test1Res = List(NamedType(Name("Dog")))
-    assert(clue(unionMemberType.parse(test1)) == Right("", test1Res))
   }

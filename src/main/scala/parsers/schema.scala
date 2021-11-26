@@ -6,7 +6,7 @@ package parsers
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser as P, Parser0 as P0}
-import cats.parse.Parser.{char, charIn, eitherOr, recursive, string}
+import cats.parse.Parser.*
 
 import EnumTypeDefinition.*
 import EnumTypeExtension.*
@@ -201,8 +201,8 @@ val extend = (string("extend") ~ __).void
 val desc = (stringValue.? ~ __).void.with1
 
 // Type System
-val typeSystemDefinition = schemaDefinition | typeDefinition | directiveDefinition
-val typeSystemExtension  = schemaExtension | typeExtension
+val typeSystemDefinition = defer(schemaDefinition | typeDefinition | directiveDefinition)
+val typeSystemExtension  = defer(schemaExtension | typeExtension)
 
 val typeSystemDefinitionOrExtension = eitherOr(typeSystemDefinition, typeSystemExtension)
 val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
@@ -210,21 +210,23 @@ val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
 val typeSystemDocument = typeSystemDefinition.rep
 
 // Type
-val typeDefinition =
+val typeDefinition = defer(
   scalarTypeDefinition |
     objectTypeDefinition |
     interfaceTypeDefinition |
     unionTypeDefinition |
     enumTypeDefinition |
     inputObjectTypeDefinition
+)
 
-val typeExtension =
+val typeExtension = defer(
   scalarTypeExtension |
     objectTypeExtension |
     interfaceTypeExtension |
     unionTypeExtension |
     enumTypeExtension |
     inputObjectTypeExtension
+)
 
 // Schema
 val schema = string("schema")

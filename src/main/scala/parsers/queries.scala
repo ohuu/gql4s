@@ -75,7 +75,7 @@ case class OperationDefinition(
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Parsers
 import cats.parse.{Parser as P, Parser0 as P0}
-import cats.parse.Parser.{char, charIn, defer, string}
+import cats.parse.Parser.*
 import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
 import cats.parse.Numbers.{digit, nonZeroDigit}
 
