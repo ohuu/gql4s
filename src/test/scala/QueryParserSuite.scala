@@ -48,28 +48,25 @@ class QueryParserSuite extends FunSuite:
     assert(clue(value.parse("false")) == Right("", BooleanValue(false)))
 
     // String Value
-    val strTest = List(
-      "\"\"\"abcd\"\"\""           -> ("", "abcd"),
-      "\"\"\"\\\"\"\"\"\"\""       -> ("", "\\\"\"\""),
-      "01DF"                       -> ("", "01DF"),
-      "01df"                       -> ("", "01df"),
-      "01dfa"                      -> ("a", "01df"),
-      "\"my name is Oli\""         -> ("", StringValue("my name is Oli")),
-      "\\\""                       -> ("", "\\\""),
-      "\"my name is \\\"Oli\\\"\"" -> ("", StringValue("my name is \\\"Oli\\\"")),
-      "\"\\u05AD\""                -> ("", StringValue("\\u05AD"))
+    assert(clue(triQuote.parse("\"\"\"")).isRight)
+    assert(clue(blockString.parse("\"\"\"asdf\"\"\"")) == Right("", "asdf"))
+    assert(clue(stringValue.parse("\"\"\"abcd\"\"\"")) == Right("", StringValue("abcd")))
+    assert(clue(stringValue.parse("\"\"\"\\\"\"\"\"\"\"")) == Right("", StringValue("\\\"\"\"")))
+    assert(clue(stringValue.parse("\"\\u01DF\"")) == Right("", StringValue("\\u01DF")))
+    assert(clue(stringValue.parse("\"01df\"")) == Right("", StringValue("01df")))
+    assert(clue(stringValue.parse("\"\\u01dg\"")).isLeft)
+    assert(clue(stringValue.parse("\"\\u01dfa\"")) == Right("", StringValue("\\u01dfa")))
+    assert(
+      clue(stringValue.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
     )
-
-    assert(clue(blockStringValue.parse(strTest(0)._1)) == Right(strTest(0)._2))
-    assert(clue(blockStringValue.parse(strTest(1)._1)) == Right(strTest(1)._2))
-    assert(clue(escapedUnicode.parse(strTest(2)._1)) == Right(strTest(2)._2))
-    assert(clue(escapedUnicode.parse(strTest(3)._1)) == Right(strTest(3)._2))
-    assert(clue(escapedUnicode.parse(strTest(4)._1)) == Right(strTest(4)._2))
-    assert(clue(escapedUnicode.parse("01dg")).isLeft)
-    assert(clue(stringValue.parse(strTest(5)._1)) == Right(strTest(5)._2))
-    assert(clue(stringValue1.parse(strTest(6)._1)) == Right(strTest(6)._2))
-    assert(clue(stringValue.parse(strTest(7)._1)) == Right(strTest(7)._2))
-    assert(clue(stringValue.parse(strTest(8)._1)) == Right(strTest(8)._2))
+    assert(clue(stringValue.parse("\"\\\"\"")) == Right("", StringValue("\\\"")))
+    assert(
+      clue(stringValue.parse("\"my name is \\\"Oli\\\"\"")) == Right(
+        "",
+        StringValue("my name is \\\"Oli\\\"")
+      )
+    )
+    assert(clue(stringValue.parse("\"\\u05AD\"")) == Right("", StringValue("\\u05AD")))
 
     // Null Value
     assert(clue(nullValue.parse("null")) == Right("", NullValue))

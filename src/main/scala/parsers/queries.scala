@@ -141,17 +141,21 @@ val booleanValue = (string("true") | string("false")).string
   .map(BooleanValue(_))
 
 // String Value
+val quote                = char('"')
 val triQuote             = string("\"\"\"")
 val escTriQuote          = string("\\\"\"\"")
-val blockStringCharacter = (!triQuote).with1 *> (escTriQuote | sourceCharacter).string
-val blockStringValue     = triQuote *> blockStringCharacter.rep0.string <* triQuote
 val escapedCharacter     = charIn('"', '\\', '/', 'b', 'f', 'n', 'r', 't')
 val escapedUnicode       = hexdig.rep(4, 4).string
-val stringValue0         = (string("\\u") ~ escapedUnicode).string // unicode
-val stringValue1         = (char('\\') ~ escapedCharacter).string  // escape code
-val stringValue2         = (!(char('"') | char('\\') | lineTerminator)).with1 *> sourceCharacter
+val blockStringCharacter = (!(triQuote | escTriQuote)).with1 *> sourceCharacter | escTriQuote.string
+val blockString          = triQuote *> blockStringCharacter.rep0.string <* triQuote
+val stringCharacter =
+  ((string("\\u") ~ escapedUnicode).string |
+    (char('\\') ~ escapedCharacter).string |
+    (!(char('"') | char('\\') | lineTerminator)).with1 *> sourceCharacter)
 val stringValue =
-  (char('"') *> (stringValue0 | stringValue1 | stringValue2).rep.string <* char('"'))
+  (blockString |
+    (!char('"')).with1 *> string("\"\"").map(_ => "") |
+    quote *> stringCharacter.rep.string <* quote)
     .map(StringValue(_))
 
 // Null Value
