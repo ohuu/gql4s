@@ -14,7 +14,7 @@ case class Name(name: String)
 // Type
 enum Type(val name: Name):
   case NamedType(n: Name) extends Type(n)
-  case NonNullType(n: Name) extends Type(n)
+  case NonNullType(tpe: Type) extends Type(tpe.name)
   case ListType(tpe: Type) extends Type(tpe.name)
 
 // Value
@@ -177,9 +177,9 @@ val objectValue = (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(
 // Type References
 val namedType: P[NamedType] = name.map(NamedType(_))
 val listType: P[Type]       = (char('[') ~ __ *> defer(`type`) <* char(']')).map(ListType(_))
-val `type` = ((namedType | listType) ~ (__ *> char('!')).?).map {
+val `type` = ((namedType | listType) ~ char('!').?).map {
   case (tpe, None) => tpe
-  case (tpe, _)    => NonNullType(tpe.name)
+  case (tpe, _)    => NonNullType(tpe)
 }
 
 // Variable
@@ -261,10 +261,3 @@ val operationDefinition =
       case Some(operationType -> name -> variableDefinitions -> directives) -> selectionSet =>
         OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet)
     }
-
-// Document
-val executableDefinition = operationDefinition | fragmentDefinition
-val executableDocument   = __ *> (executableDefinition <* __).rep
-
-val definition: P[Definition] = executableDefinition /* | typeSystemDefinitionOrExtension */
-val document                  = __ *> (definition <* __).rep

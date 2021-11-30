@@ -23,23 +23,21 @@ import Value.*
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // AST
-trait TypeSystemDefinition
-trait TypeSystemExtension
+trait TypeSystemDefinition extends Definition
+trait TypeSystemExtension  extends Definition
 
 trait TypeDefinition extends TypeSystemDefinition
 trait TypeExtension  extends TypeSystemExtension
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
+
 case class SchemaDefinition(
     directives: List[Directive],
     rootOperationTypeDefinition: NonEmptyList[RootOperationTypeDefinition]
 ) extends TypeSystemDefinition
-enum SchemaExtension extends TypeSystemExtension:
-  case SchemaExtensionA(
-      directives: List[Directive],
-      root: NonEmptyList[RootOperationTypeDefinition]
-  )
-  case SchemaExtensionB(directives: NonEmptyList[Directive])
+
+case class SchemaExtension(directives: List[Directive], root: List[RootOperationTypeDefinition])
+    extends TypeSystemExtension
 
 // Scalar Type
 case class ScalarTypeDefinition(name: Name, directives: List[Directive]) extends TypeDefinition
@@ -59,66 +57,34 @@ case class FieldDefinition(
     tpe: Type,
     directives: List[Directive]
 )
-enum ObjectTypeDefinition extends TypeDefinition:
-  case ObjectTypeDefinitionA(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive],
-      fields: NonEmptyList[FieldDefinition]
-  )
-  case ObjectTypeDefinitionB(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive]
-  )
+case class ObjectTypeDefinition(
+    name: Name,
+    interfaces: List[NamedType],
+    directives: List[Directive],
+    fields: List[FieldDefinition]
+) extends TypeDefinition
 
-enum ObjectTypeExtension extends TypeExtension:
-  case ObjectTypeExtensionA(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive],
-      fields: NonEmptyList[FieldDefinition]
-  )
-  case ObjectTypeExtensionB(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: NonEmptyList[Directive]
-  )
-  case ObjectTypeExtensionC(
-      name: Name,
-      interfaces: NonEmptyList[NamedType]
-  )
+case class ObjectTypeExtension(
+    name: Name,
+    interfaces: List[NamedType],
+    directives: List[Directive],
+    fields: List[FieldDefinition]
+) extends TypeExtension
 
 // Interfaces
-enum InterfaceTypeDefinition extends TypeDefinition:
-  case InterfaceTypeDefinitionA(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive],
-      fields: NonEmptyList[FieldDefinition]
-  )
-  case InterfaceTypeDefinitionB(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive]
-  )
+case class InterfaceTypeDefinition(
+    name: Name,
+    interfaces: List[NamedType],
+    directives: List[Directive],
+    fields: List[FieldDefinition]
+) extends TypeDefinition
 
-enum InterfaceTypeExtension extends TypeExtension:
-  case InterfaceTypeExtensionA(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: List[Directive],
-      fields: NonEmptyList[FieldDefinition]
-  )
-  case InterfaceTypeExtensionB(
-      name: Name,
-      interfaces: List[NamedType],
-      directives: NonEmptyList[Directive]
-  )
-  case InterfaceTypeExtensionC(
-      name: Name,
-      interfaces: NonEmptyList[NamedType]
-  )
+case class InterfaceTypeExtension(
+    name: Name,
+    interfaces: List[NamedType],
+    directives: List[Directive],
+    fields: List[FieldDefinition]
+) extends TypeExtension
 
 // Unions
 case class UnionTypeDefinition(
@@ -127,52 +93,39 @@ case class UnionTypeDefinition(
     unionMemberTypes: List[Type.NamedType]
 ) extends TypeDefinition
 
-enum UnionTypeExtension extends TypeExtension:
-  case UnionTypeExtensionA(
-      name: Name,
-      directives: List[Directive],
-      unionMembers: NonEmptyList[NamedType]
-  )
-  case UnionTypeExtensionB(
-      name: Name,
-      directives: NonEmptyList[Directive]
-  )
+case class UnionTypeExtension(
+    name: Name,
+    directives: List[Directive],
+    unionMembers: List[NamedType]
+) extends TypeExtension
 
 // Enum Type Definition
 case class EnumValueDefinition(value: EnumValue, directives: List[Directive])
 
-enum EnumTypeDefinition extends TypeDefinition:
-  case EnumTypeDefinitionA(
-      name: Name,
-      directives: List[Directive],
-      values: NonEmptyList[EnumValueDefinition]
-  )
-  case EnumTypeDefinitionB(name: Name, directives: List[Directive])
+case class EnumTypeDefinition(
+    name: Name,
+    directives: List[Directive],
+    values: List[EnumValueDefinition]
+) extends TypeDefinition
 
-enum EnumTypeExtension extends TypeExtension:
-  case EnumTypeExtensionA(
-      name: Name,
-      directives: List[Directive],
-      values: NonEmptyList[EnumValueDefinition]
-  )
-  case EnumTypeExtensionB(name: Name, directives: NonEmptyList[Directive])
+case class EnumTypeExtension(
+    name: Name,
+    directives: List[Directive],
+    values: List[EnumValueDefinition]
+) extends TypeExtension
 
 // Input Objects
-enum InputObjectTypeDefinition extends TypeDefinition:
-  case InputObjectTypeDefinitionA(
-      name: Name,
-      directives: List[Directive],
-      fieldsDef: NonEmptyList[InputValueDefinition]
-  )
-  case InputObjectTypeDefinitionB(name: Name, directives: List[Directive])
+case class InputObjectTypeDefinition(
+    name: Name,
+    directives: List[Directive],
+    fieldsDef: List[InputValueDefinition]
+) extends TypeDefinition
 
-enum InputObjectTypeExtension extends TypeExtension:
-  case InputObjectTypeExtensionA(
-      name: Name,
-      directives: List[Directive],
-      fieldsDef: NonEmptyList[InputValueDefinition]
-  )
-  case InputObjectTypeExtensionB(name: Name, directives: NonEmptyList[Directive])
+case class InputObjectTypeExtension(
+    name: Name,
+    directives: List[Directive],
+    fieldsDef: List[InputValueDefinition]
+) extends TypeExtension
 
 // Directives
 trait DirectiveLocation
@@ -204,7 +157,7 @@ val desc = (stringValue.? ~ __).void.with1
 val typeSystemDefinition = defer(schemaDefinition | typeDefinition | directiveDefinition)
 val typeSystemExtension  = defer(schemaExtension | typeExtension)
 
-val typeSystemDefinitionOrExtension = eitherOr(typeSystemDefinition, typeSystemExtension)
+val typeSystemDefinitionOrExtension = typeSystemDefinition | typeSystemExtension
 val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
 
 val typeSystemDocument = typeSystemDefinition.rep
@@ -242,10 +195,10 @@ val schemaDefinition =
     }
 
 val schemaExtensionA = ((directives0 <* __) ~ rootOperationTypeDefinitions).map {
-  case dirs -> root => SchemaExtensionA(dirs, root)
+  case dirs -> root => SchemaExtension(dirs, root.toList)
 }
 val schemaExtensionB = ((directives <* __) <* !char('{')).map { case dirs =>
-  SchemaExtensionB(dirs)
+  SchemaExtension(dirs.toList, Nil)
 }
 val schemaExtension = extend ~ schema *> schemaExtensionA.backtrack | schemaExtensionB
 
@@ -285,25 +238,25 @@ val typeStr = (string("type") ~ __).void
 val objectTypeDefinitionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
     case name -> impls -> dirs -> fields =>
-      ObjectTypeDefinitionA(name, impls, dirs, fields)
+      ObjectTypeDefinition(name, impls, dirs, fields.toList)
   }
 val objectTypeDefinitionB =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives0).map { case name -> impls -> dirs =>
-    ObjectTypeDefinitionB(name, impls, dirs)
+    ObjectTypeDefinition(name, impls, dirs, Nil)
   }
 val objectTypeDefinition = desc ~ typeStr *> objectTypeDefinitionA.backtrack | objectTypeDefinitionB
 
 val extendType = (extend ~ string("type") ~ __).void
 val objectTypeExtensionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
-    case name -> impls -> dirs -> fields => ObjectTypeExtensionA(name, impls, dirs, fields)
+    case name -> impls -> dirs -> fields => ObjectTypeExtension(name, impls, dirs, fields.toList)
   }
 val objectTypeExtensionB =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
-    case name -> impls -> dirs => ObjectTypeExtensionB(name, impls, dirs)
+    case name -> impls -> dirs => ObjectTypeExtension(name, impls, dirs.toList, Nil)
   }
 val objectTypeExtensionC = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
-  case name -> impls => ObjectTypeExtensionC(name, impls)
+  case name -> impls => ObjectTypeExtension(name, impls.toList, Nil, Nil)
 }
 val objectTypeExtension =
   extendType *> (objectTypeExtensionA.backtrack | objectTypeExtensionB.backtrack | objectTypeExtensionC)
@@ -313,10 +266,10 @@ val interface = (desc ~ string("interface") ~ __).void
 val interfaceTypeDefinitionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition)
     .map { case name -> impls -> dirs -> fields =>
-      InterfaceTypeDefinitionA(name, impls, dirs, fields)
+      InterfaceTypeDefinition(name, impls, dirs, fields.toList)
     }
 val interfaceTypeDefinitionB = ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives0)
-  .map { case name -> impls -> dirs => InterfaceTypeDefinitionB(name, impls, dirs) }
+  .map { case name -> impls -> dirs => InterfaceTypeDefinition(name, impls, dirs, Nil) }
 val interfaceTypeDefinition =
   interface *> interfaceTypeDefinitionA.backtrack | interfaceTypeDefinitionB
 
@@ -324,37 +277,40 @@ val extendInterface = (extend ~ string("interface") ~ __).void
 val interfaceTypeExtensionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
     case name -> impls -> dirs -> fields =>
-      InterfaceTypeExtensionA(name, impls, dirs, fields)
+      InterfaceTypeExtension(name, impls, dirs, fields.toList)
   }
 val interfaceTypeExtensionB =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives <* !char('{')).map {
-    case name -> impls -> dirs => InterfaceTypeExtensionB(name, impls, dirs)
+    case name -> impls -> dirs => InterfaceTypeExtension(name, impls, dirs.toList, Nil)
   }
 val interfaceTypeExtensionC = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map {
-  case name -> impls => InterfaceTypeExtensionC(name, impls)
+  case name -> impls => InterfaceTypeExtension(name, impls.toList, Nil, Nil)
 }
 val interfaceTypeExtension =
   extendInterface *> (interfaceTypeExtensionA.backtrack | interfaceTypeExtensionB.backtrack | interfaceTypeExtensionC)
 
 // Union
 val unionMemberType = recursive[NonEmptyList[NamedType]] { recurse =>
-  (((char('=') | char('|')).? ~ __).with1 *> (namedType <* __) ~ recurse.?).map {
+  ((char('|').? ~ __).with1 *> (namedType <* __) ~ recurse.?).map {
     case tpe -> None       => NonEmptyList.one(tpe)
     case tpe -> Some(tpes) => tpe :: tpes
   }
 }
 val unionMemberType0 = unionMemberType.?.map(_.map(_.toList).getOrElse(Nil))
 val unionTypeDefinition =
-  (desc ~ string("union") ~ __ *> (name <* __) ~ (directives0 <* __) ~ unionMemberType0).map {
-    case name -> dirs -> unionMemberTypes => UnionTypeDefinition(name, dirs, unionMemberTypes)
+  (desc ~ string("union") ~ __ *> (name <* __) ~ (directives0 <* __ ~ char(
+    '='
+  ) <* __) ~ unionMemberType0).map { case name -> dirs -> unionMemberTypes =>
+    UnionTypeDefinition(name, dirs, unionMemberTypes)
   }
 
 val extendUnion = (extend ~ string("union") ~ __).void
-val unionTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ unionMemberType).map {
-  case name -> dirs -> unionMembers => UnionTypeExtensionA(name, dirs, unionMembers)
-}
-val unionTypeExtensionB = ((name <* __) ~ directives).map { case name -> dirs =>
-  UnionTypeExtensionB(name, dirs)
+val unionTypeExtensionA =
+  ((name <* __) ~ (directives0 <* __ ~ char('=') ~ __) ~ unionMemberType).map {
+    case name -> dirs -> unionMembers => UnionTypeExtension(name, dirs, unionMembers.toList)
+  }
+val unionTypeExtensionB = ((name <* __) ~ (directives <* __ ~ char('=') ~ __)).map {
+  case name -> dirs => UnionTypeExtension(name, dirs.toList, Nil)
 }
 val unionTypeExtension = extendUnion *> (unionTypeExtensionA.backtrack | unionTypeExtensionB)
 
@@ -367,20 +323,20 @@ val enumValuesDefinition = char('{') ~ __ *> enumValueDefinition.rep <* char('}'
 val enumStr = (string("enum") ~ __).void
 val enumTypeDefinitionA =
   ((name <* __) ~ (directives0 <* __) ~ enumValuesDefinition).map { case name -> dirs -> values =>
-    EnumTypeDefinitionA(name, dirs, values)
+    EnumTypeDefinition(name, dirs, values.toList)
   }
 val enumTypeDefinitionB =
   ((name <* __) ~ (directives0 <* __) <* !char('{')).map { case name -> dirs =>
-    EnumTypeDefinitionB(name, dirs)
+    EnumTypeDefinition(name, dirs, Nil)
   }
 val enumTypeDefinition = desc ~ enumStr *> enumTypeDefinitionA.backtrack | enumTypeDefinitionB
 
 val extendEnum = (extend ~ string("enum") ~ __).void
 val enumTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ enumValuesDefinition).map {
-  case name -> dirs -> values => EnumTypeExtensionA(name, dirs, values)
+  case name -> dirs -> values => EnumTypeExtension(name, dirs, values.toList)
 }
 val enumTypeExtensionB = ((name <* __) ~ (directives <* __) <* !char('{')).map {
-  case name -> dirs => EnumTypeExtensionB(name, dirs)
+  case name -> dirs => EnumTypeExtension(name, dirs.toList, Nil)
 }
 val enumTypeExtension = extendEnum *> enumTypeExtensionA.backtrack | enumTypeExtensionB
 
@@ -390,19 +346,19 @@ val inputFieldsDefinition0 = inputFieldsDefinition.?.map(_.map(_.toList).getOrEl
 
 val input = (desc ~ string("input") ~ __).void
 val inputObjectTypeDefinitionA = ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map {
-  case name -> dirs -> fields => InputObjectTypeDefinitionA(name, dirs, fields)
+  case name -> dirs -> fields => InputObjectTypeDefinition(name, dirs, fields.toList)
 }
 val inputObjectTypeDefinitionB = ((name <* __) ~ (directives0 <* __) <* !char('{')).map {
-  case name -> dirs => InputObjectTypeDefinitionB(name, dirs)
+  case name -> dirs => InputObjectTypeDefinition(name, dirs, Nil)
 }
 val inputObjectTypeDefinition = input *> inputObjectTypeDefinitionA | inputObjectTypeDefinitionB
 
 val extendInput = (desc ~ extend ~ string("input") ~ __).void
 val inputObjectTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map {
-  case name -> dirs -> fields => InputObjectTypeExtensionA(name, dirs, fields)
+  case name -> dirs -> fields => InputObjectTypeExtension(name, dirs, fields.toList)
 }
 val inputObjectTypeExtensionB = ((name <* __) ~ (directives <* __) <* !char('{')).map {
-  case name -> dirs => InputObjectTypeExtensionB(name, dirs)
+  case name -> dirs => InputObjectTypeExtension(name, dirs.toList, Nil)
 }
 val inputObjectTypeExtension =
   extendInput *> inputObjectTypeExtensionA.backtrack | inputObjectTypeExtensionB
@@ -419,8 +375,8 @@ val typeSystemDirectiveLocation =
     string("ARGUMENT_DEFINITION").map(_ => ARGUMENT_DEFINITION) |
     string("INTERFACE").map(_ => INTERFACE) |
     string("UNION").map(_ => UNION) |
-    string("ENUM").map(_ => ENUM) |
     string("ENUM_VALUE").map(_ => ENUM_VALUE) |
+    string("ENUM").map(_ => ENUM) |
     string("INPUT_OBJECT").map(_ => INPUT_OBJECT) |
     string("INPUT_FIELD_DEFINITION").map(_ => INPUT_FIELD_DEFINITION)
 

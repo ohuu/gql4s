@@ -117,7 +117,8 @@ class QueryParserSuite extends FunSuite:
     assert(clue(listType.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
     assert(clue(listType.parse("[42]")).isLeft)
     assert(clue(`type`.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
-    assert(clue(`type`.parse("Int!")) == Right("", NonNullType(Name("Int"))))
+    assert(clue(`type`.parse("Int!")) == Right("", NonNullType(NamedType(Name("Int")))))
+    assert(clue(`type`.parse("[Int]!")) == Right("", NonNullType(ListType(NamedType(Name("Int"))))))
   }
 
   test("variables") {
@@ -125,7 +126,10 @@ class QueryParserSuite extends FunSuite:
     assert(clue(variable.parse("$thing")) == Right("", Variable(Name("thing"))))
     assert(
       clue(variableDefinition.parse("$thing: Int! = 42")) ==
-        Right("", VariableDefinition(Name("thing"), NonNullType(Name("Int")), Some(IntValue(42))))
+        Right(
+          "",
+          VariableDefinition(Name("thing"), NonNullType(NamedType(Name("Int"))), Some(IntValue(42)))
+        )
     )
   }
 
