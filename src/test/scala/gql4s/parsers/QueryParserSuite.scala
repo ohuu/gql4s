@@ -2,6 +2,7 @@
 // This software is licensed under the MIT License (MIT).
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
+package gql4s
 package parsers
 
 import cats.data.NonEmptyList
@@ -50,29 +51,29 @@ class QueryParserSuite extends FunSuite:
     // String Value
     assert(clue(triQuote.parse("\"\"\"")).isRight)
     assert(clue(blockString.parse("\"\"\"asdf\"\"\"")) == Right("", "asdf"))
-    assert(clue(stringValue.parse("\"\"\"abcd\"\"\"")) == Right("", StringValue("abcd")))
-    assert(clue(stringValue.parse("\"\"\"\\\"\"\"\"\"\"")) == Right("", StringValue("\\\"\"\"")))
-    assert(clue(stringValue.parse("\"\\u01DF\"")) == Right("", StringValue("\\u01DF")))
-    assert(clue(stringValue.parse("\"01df\"")) == Right("", StringValue("01df")))
-    assert(clue(stringValue.parse("\"\\u01dg\"")).isLeft)
-    assert(clue(stringValue.parse("\"\\u01dfa\"")) == Right("", StringValue("\\u01dfa")))
+    assert(clue(value.parse("\"\"\"abcd\"\"\"")) == Right("", StringValue("abcd")))
+    assert(clue(value.parse("\"\"\"\\\"\"\"\"\"\"")) == Right("", StringValue("\\\"\"\"")))
+    assert(clue(value.parse("\"\\u01DF\"")) == Right("", StringValue("\\u01DF")))
+    assert(clue(value.parse("\"01df\"")) == Right("", StringValue("01df")))
+    assert(clue(value.parse("\"\\u01dg\"")).isLeft)
+    assert(clue(value.parse("\"\\u01dfa\"")) == Right("", StringValue("\\u01dfa")))
     assert(
-      clue(stringValue.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
+      clue(value.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
     )
-    assert(clue(stringValue.parse("\"\\\"\"")) == Right("", StringValue("\\\"")))
+    assert(clue(value.parse("\"\\\"\"")) == Right("", StringValue("\\\"")))
     assert(
-      clue(stringValue.parse("\"my name is \\\"Oli\\\"\"")) == Right(
+      clue(value.parse("\"my name is \\\"Oli\\\"\"")) == Right(
         "",
         StringValue("my name is \\\"Oli\\\"")
       )
     )
-    assert(clue(stringValue.parse("\"\\u05AD\"")) == Right("", StringValue("\\u05AD")))
+    assert(clue(value.parse("\"\\u05AD\"")) == Right("", StringValue("\\u05AD")))
 
     // Null Value
-    assert(clue(nullValue.parse("null")) == Right("", NullValue))
+    assert(clue(value.parse("null")) == Right("", NullValue))
 
     // Enum Value
-    assert(clue(enumValue.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
+    assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
     assert(clue(enumValue.parse("true")).isLeft)
     assert(clue(enumValue.parse("null")).isLeft)
 
@@ -84,36 +85,35 @@ class QueryParserSuite extends FunSuite:
       "[[42]]"   -> ("", ListValue(ListValue(IntValue(42) :: Nil) :: Nil))
     )
 
-    assert(clue(listValue.parse(listTest(0)._1)) == Right(listTest(0)._2))
-    assert(clue(listValue.parse(listTest(1)._1)) == Right(listTest(1)._2))
-    assert(clue(listValue.parse(listTest(2)._1)) == Right(listTest(2)._2))
-    assert(clue(listValue.parse(listTest(3)._1)) == Right(listTest(3)._2))
+    assert(clue(value.parse(listTest(0)._1)) == Right(listTest(0)._2))
+    assert(clue(value.parse(listTest(1)._1)) == Right(listTest(1)._2))
+    assert(clue(value.parse(listTest(2)._1)) == Right(listTest(2)._2))
+    assert(clue(value.parse(listTest(3)._1)) == Right(listTest(3)._2))
 
     // Object Value
     val objTest = List(
       "{}" -> ("", ObjectValue(Nil)),
       """{
-        name: "oli"
-      }""" -> (
+          name: "oli"
+        }""" -> (
         "",
         ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil)
       )
     )
 
-    assert(clue(objectValue.parse(objTest(0)._1)) == Right(objTest(0)._2))
-    assert(clue(objectValue.parse(objTest(1)._1)) == Right(objTest(1)._2))
-
-    // Value
+    assert(clue(value.parse(objTest(0)._1)) == Right(objTest(0)._2))
+    assert(clue(value.parse(objTest(1)._1)) == Right(objTest(1)._2))
     assert(clue(value.parse("1338")) == Right("", IntValue(1338)))
     assert(clue(value.parse("-42.0E+2")) == Right("", FloatValue(-42.0e+2)))
     assert(clue(value.parse("true")) == Right("", BooleanValue(true)))
-    assert(clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\"")))
+    assert(
+      clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\""))
+    )
     assert(clue(value.parse("null")) == Right("", NullValue))
     assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
   }
 
   test("type references") {
-    // Type Reference
     assert(clue(listType.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
     assert(clue(listType.parse("[42]")).isLeft)
     assert(clue(`type`.parse("[Int]")) == Right("", ListType(NamedType(Name("Int")))))
@@ -122,7 +122,6 @@ class QueryParserSuite extends FunSuite:
   }
 
   test("variables") {
-    // Variableiable
     assert(clue(variable.parse("$thing")) == Right("", Variable(Name("thing"))))
     assert(
       clue(variableDefinition.parse("$thing: Int! = 42")) ==
@@ -148,7 +147,6 @@ class QueryParserSuite extends FunSuite:
     val test2    = "id: 4"
     val test2Res = Argument(Name("id"), IntValue(4))
 
-    // Argument
     assert(clue(argument.parse(test(0)._1)) == Right(test(0)._2))
     assert(clue(arguments.parse(test(1)._1)) == Right(test(1)._2))
     assert(clue(argument.parse(test2)) == Right("", test2Res))
@@ -176,8 +174,8 @@ class QueryParserSuite extends FunSuite:
     val field0Res = Field(None, Name("field"), Nil, Nil, Nil)
 
     val field1 = """field {
-      name
-    }"""
+        name
+      }"""
     val field1Res = Field(
       None,
       Name("field"),
@@ -187,8 +185,8 @@ class QueryParserSuite extends FunSuite:
     )
 
     val field2 = """user(id:4) {
-      name
-    }"""
+        name
+      }"""
     val field2Res = Field(
       None,
       Name("user"),
@@ -200,12 +198,12 @@ class QueryParserSuite extends FunSuite:
     // TODO: test field with directives
 
     val fragmentDefinition0 = """fragment friendFields on User {
-      id
-      name
-      ...standardProfilePic
-    }"""
+        id
+        name
+        ...standardProfilePic
+      }"""
     val fragmentDefinition0Res = FragmentDefinition(
-      Name("friendFields"),
+      Some(Name("friendFields")),
       NamedType(Name("User")),
       Nil,
       NonEmptyList(
@@ -218,15 +216,15 @@ class QueryParserSuite extends FunSuite:
     )
 
     val fragment1Definition = """fragment friendFields on User {
-      id
-      name
-      ...mySpread
-      ... on Thing {
         id
-      }
-    }"""
+        name
+        ...mySpread
+        ... on Thing {
+          id
+        }
+      }"""
     val fragment1DefinitionRes = FragmentDefinition(
-      Name("friendFields"),
+      Some(Name("friendFields")),
       NamedType(Name("User")),
       Nil,
       NonEmptyList(
@@ -254,12 +252,12 @@ class QueryParserSuite extends FunSuite:
 
   test("operations") {
     val mutation = """mutation {
-      likeStory(storyID: 12345) {
-        story {
-          likeCount
+        likeStory(storyID: 12345) {
+          story {
+            likeCount
+          }
         }
-      }
-    }"""
+      }"""
 
     val mutationRes = OperationDefinition(
       Mutation,
@@ -294,16 +292,16 @@ class QueryParserSuite extends FunSuite:
     )
 
     val anonQuery = """{
-      field
-    }"""
-    val anonQueryRes =
-      OperationDefinition(
-        Query,
-        None,
-        Nil,
-        Nil,
-        NonEmptyList.one(Field(None, Name("field"), Nil, Nil, Nil))
-      )
+        field
+      }"""
+
+    val anonQueryRes = OperationDefinition(
+      Query,
+      None,
+      Nil,
+      Nil,
+      NonEmptyList.one(Field(None, Name("field"), Nil, Nil, Nil))
+    )
 
     assert(clue(operationType.parse("mutation ")).isRight)
     assert(clue(operationDefinition.parse(mutation)) == Right("", mutationRes))

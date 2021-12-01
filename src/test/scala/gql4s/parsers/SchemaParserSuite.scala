@@ -2,10 +2,12 @@
 // This software is licensed under the MIT License (MIT).
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
+package gql4s
 package parsers
 
 import cats.data.NonEmptyList
 import munit.FunSuite
+
 import Type.*
 import Value.*
 
@@ -15,9 +17,9 @@ class SchemaParserSuite extends FunSuite:
     val res1  = ScalarTypeDefinition(Name("UUID"), Nil)
 
     val test2 = s"""${"""""""""}
-    hello
-    ${"""""""""}
-    scalar UUID @specifiedBy(url: "https://tools.ietf.org/html/rfc4122")
+      hello
+      ${"""""""""}
+      scalar UUID @specifiedBy(url: "https://tools.ietf.org/html/rfc4122")
     """
     val res2 = ScalarTypeDefinition(
       Name("UUID"),
@@ -39,10 +41,10 @@ class SchemaParserSuite extends FunSuite:
 
   test("objects") {
     val test1 = """type Person {
-        name: String
-        age: Int!
-        picture(size: Int!): Url
-      }"""
+      name: String
+      age: Int!
+      picture(size: Int!): Url
+    }"""
     val res1 = ObjectTypeDefinition(
       Name("Person"),
       Nil,

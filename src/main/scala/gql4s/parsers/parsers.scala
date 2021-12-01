@@ -2,152 +2,197 @@
 // This software is licensed under the MIT License (MIT).
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
+package gql4s
 package parsers
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser as P, Parser0 as P0}
 import cats.parse.Parser.*
+import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
+import cats.parse.Numbers.{digit, nonZeroDigit}
 
-import EnumTypeDefinition.*
-import EnumTypeExtension.*
-import InputObjectTypeDefinition.*
-import InputObjectTypeExtension.*
-import InterfaceTypeDefinition.*
-import InterfaceTypeExtension.*
-import ObjectTypeDefinition.*
-import ObjectTypeExtension.*
-import SchemaExtension.*
-import UnionTypeExtension.*
+import TypeSystemDirectiveLocation.*
+import ExecutableDirectiveLocation.*
+import OperationType.*
+import Selection.*
 import Type.*
 import Value.*
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-// AST
-trait TypeSystemDefinition extends Definition
-trait TypeSystemExtension  extends Definition
+// Queries
+// Source Character
+// val except = charIn('\u0000' to '\u0008')
+//   | charIn('\u000B' to '\u000C')
+//   | charIn('\u000E' to '\u001F')
+// val sourceCharacter = until(except)
+val sourceCharacter = (charIn('\u0020' to '\uffff') | cr | lf | htab).string
 
-trait TypeDefinition extends TypeSystemDefinition
-trait TypeExtension  extends TypeSystemExtension
+// Unicode BOM
+val unicodeBom = char('\uFEFF')
 
-case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
+// Line Terminator
+val lineTerminator = crlf | cr | lf
 
-case class SchemaDefinition(
-    directives: List[Directive],
-    rootOperationTypeDefinition: NonEmptyList[RootOperationTypeDefinition]
-) extends TypeSystemDefinition
+// Comment
+val commentChar = (sourceCharacter ~ !lineTerminator).void
+val comment     = (char('#') ~ commentChar.rep0).void
 
-case class SchemaExtension(directives: List[Directive], root: List[RootOperationTypeDefinition])
-    extends TypeSystemExtension
+// Ignore
+val __ = (unicodeBom | wsp | lineTerminator | comment | char(',')).rep0.void
 
-// Scalar Type
-case class ScalarTypeDefinition(name: Name, directives: List[Directive]) extends TypeDefinition
-case class ScalarTypeExtension(name: Name, directives: NonEmptyList[Directive])
-    extends TypeExtension
+// // Name
+val namePart = ((char('_') | alpha) ~ (char('_') | alpha | digit).rep0).string
+val name     = namePart.map(Name(_))
 
-// Object Type
-case class InputValueDefinition(
-    name: Name,
-    tpe: Type,
-    defaultValue: Option[Value],
-    directives: List[Directive]
-)
-case class FieldDefinition(
-    name: Name,
-    arguments: List[InputValueDefinition],
-    tpe: Type,
-    directives: List[Directive]
-)
-case class ObjectTypeDefinition(
-    name: Name,
-    interfaces: List[NamedType],
-    directives: List[Directive],
-    fields: List[FieldDefinition]
-) extends TypeDefinition
+// Int Value
+val integerPart = (char('-').?.with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
+val intValue    = integerPart.string.map(s => IntValue(s.toInt))
 
-case class ObjectTypeExtension(
-    name: Name,
-    interfaces: List[NamedType],
-    directives: List[Directive],
-    fields: List[FieldDefinition]
-) extends TypeExtension
+// Float Value
+val sign              = charIn('-', '+')
+val exponentIndicator = charIn('e', 'E')
+val exponentPart      = (exponentIndicator ~ sign.? ~ digit.rep).string
+val fractionalPart    = (char('.') ~ digit.rep).string
+val floatValue =
+  (integerPart ~ (exponentPart | (fractionalPart ~ exponentPart.?)) ~
+    !(char('.') | alpha)).string
+    .map(_.toFloat)
+    .map(FloatValue(_))
 
-// Interfaces
-case class InterfaceTypeDefinition(
-    name: Name,
-    interfaces: List[NamedType],
-    directives: List[Directive],
-    fields: List[FieldDefinition]
-) extends TypeDefinition
+// Boolean Value
+val booleanValue = (string("true") | string("false")).string
+  .map(_.toBoolean)
+  .map(BooleanValue(_))
 
-case class InterfaceTypeExtension(
-    name: Name,
-    interfaces: List[NamedType],
-    directives: List[Directive],
-    fields: List[FieldDefinition]
-) extends TypeExtension
+// // String Value
+val quote            = char('"')
+val triQuote         = string("\"\"\"")
+val escTriQuote      = string("\\\"\"\"")
+val escapedCharacter = charIn('"', '\\', '/', 'b', 'f', 'n', 'r', 't')
+val escapedUnicode   = hexdig.rep(4, 4).string
+val blockStringCharacter =
+  (!(triQuote | escTriQuote)).with1 *> sourceCharacter | escTriQuote.string
+val blockString = triQuote *> blockStringCharacter.rep0.string <* triQuote
+val stringCharacter =
+  ((string("\\u") ~ escapedUnicode).string |
+    (char('\\') ~ escapedCharacter).string |
+    (!(char('"') | char('\\') | lineTerminator)).with1 *> sourceCharacter)
+val stringValue =
+  (blockString |
+    (!char('"')).with1 *> string("\"\"").map(_ => "") |
+    quote *> stringCharacter.rep.string <* quote)
+    .map(StringValue(_))
 
-// Unions
-case class UnionTypeDefinition(
-    name: Name,
-    directives: List[Directive],
-    unionMemberTypes: List[Type.NamedType]
-) extends TypeDefinition
+// Null Value
+val nullValue = string("null").map(_ => NullValue)
 
-case class UnionTypeExtension(
-    name: Name,
-    directives: List[Directive],
-    unionMembers: List[NamedType]
-) extends TypeExtension
+// Enum Value
+val enumValue: P[EnumValue] =
+  ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
 
-// Enum Type Definition
-case class EnumValueDefinition(value: EnumValue, directives: List[Directive])
+// List Value
+val listValue: P[ListValue] = (char('[') ~ __ *> (defer(value) <* __).rep0 <* char(']'))
+  .map(ListValue(_))
 
-case class EnumTypeDefinition(
-    name: Name,
-    directives: List[Directive],
-    values: List[EnumValueDefinition]
-) extends TypeDefinition
+// Object Value
+val objectField: P[ObjectField] = ((name <* __ ~ char(':') ~ __) ~ defer(value)).map {
+  case name -> value => ObjectField(name, value)
+}
+val objectValue =
+  (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(ObjectValue(_))
 
-case class EnumTypeExtension(
-    name: Name,
-    directives: List[Directive],
-    values: List[EnumValueDefinition]
-) extends TypeExtension
+// // Type References
+val namedType: P[NamedType] = name.map(NamedType(_))
+val listType: P[Type]       = (char('[') ~ __ *> defer(`type`) <* char(']')).map(ListType(_))
+val `type` = ((namedType | listType) ~ char('!').?).map {
+  case (tpe, None) => tpe
+  case (tpe, _)    => NonNullType(tpe)
+}
 
-// Input Objects
-case class InputObjectTypeDefinition(
-    name: Name,
-    directives: List[Directive],
-    fieldsDef: List[InputValueDefinition]
-) extends TypeDefinition
+// // Variable
+val defaultValue          = (char('=') ~ __ *> defer(value))
+val variable: P[Variable] = char('$') ~ __ *> name.map(Variable(_))
+val variableDefinition =
+  ((variable <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ defaultValue.?).map {
+    case Variable(name) -> tpe -> defaultValue => VariableDefinition(name, tpe, defaultValue)
+  }
+val variableDefinitions  = (char('(') ~ __ *> (variableDefinition <* __).rep <* char(')'))
+val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(Nil))
 
-case class InputObjectTypeExtension(
-    name: Name,
-    directives: List[Directive],
-    fieldsDef: List[InputValueDefinition]
-) extends TypeExtension
+val value =
+  variable
+    | floatValue.backtrack
+    | intValue
+    | stringValue
+    | booleanValue
+    | nullValue
+    | enumValue
+    | listValue
+    | objectValue
+
+// Arguments
+val argument = ((name <* __ ~ char(':') ~ __) ~ value).map { case name -> value =>
+  Argument(name, value)
+}
+val arguments  = (char('(') ~ __ *> (argument <* __).rep <* char(')'))
+val arguments0 = arguments.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Directives
-trait DirectiveLocation
+val directive = (char('@') ~ __ *> (name <* __) ~ arguments0).map { case name -> arguments =>
+  Directive(name, arguments)
+}
+val directives  = (directive <* __).rep
+val directives0 = (directive <* __).rep0
 
-enum TypeSystemDirectiveLocation extends DirectiveLocation:
-  case SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM,
-  ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
+// Selection Set
+val selection: P[Selection] =
+  defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
+val selectionSet  = (char('{') ~ __ *> (selection <* __).rep <* char('}'))
+val selectionSet0 = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
 
-enum ExecutableDirectiveLocation extends DirectiveLocation:
-  case QUERY, MUTATION, SUBSCRIPTION, FIELD, FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT,
-  VARIABLE_DEFINITION
+// Fragments
+val fragment      = string("fragment")
+val typeCondition = string("on") ~ __ *> namedType
+val fragmentName  = (!string("on")).with1 *> name
+val fragmentDefinition =
+  ((fragment ~ __) *> (fragmentName <* __) ~ (typeCondition <* __) ~ (directives0 <* __) ~ selectionSet)
+    .map { case name -> typeCondition -> directives -> selectionSet =>
+      FragmentDefinition(Some(name), typeCondition, directives, selectionSet)
+    }
+val fragmentSpread = (string("...") ~ __ *> (fragmentName <* __) ~ directives0).map {
+  case name -> directives => FragmentSpread(name, directives)
+}
+val inlineFragment =
+  (string("...") ~ __ *> (typeCondition.? <* __) ~ (directives0 <* __) ~ selectionSet).map {
+    case tpe -> directives -> selectionSet => InlineFragment(tpe, directives, selectionSet)
+  }
 
-case class DirectiveDefinition(
-    name: Name,
-    arguments: List[InputValueDefinition],
-    repeatable: Boolean,
-    directiveLocs: NonEmptyList[DirectiveLocation]
-) extends TypeSystemDefinition
+// Fields
+val withAlias = (char(':') *> __) *> name
+val field =
+  ((name <* __) ~ (withAlias.? <* __) ~ (arguments0 <* __) ~ (directives0 <* __) ~ selectionSet0)
+    .map {
+      case name -> None -> arguments -> directives -> selectionSet =>
+        Field(None, name, arguments, directives, selectionSet)
+      case alias -> Some(name) -> arguments -> directives -> selectionSet =>
+        Field(Some(alias), name, arguments, directives, selectionSet)
+    }
+
+// Operations
+val query         = string("query").map(_ => Query)
+val mutation      = string("mutation").map(_ => Mutation)
+val subscription  = string("subscription").map(_ => Subscription)
+val operationType = query | mutation | subscription
+val operationDefinition =
+  (((operationType <* __) ~ (name.? <* __) ~ (variableDefinitions0 <* __) ~ (directives0 <* __)).?.with1 ~ selectionSet)
+    .map {
+      case None -> selectionSet => OperationDefinition(Query, None, Nil, Nil, selectionSet)
+      case Some(operationType -> name -> variableDefinitions -> directives) -> selectionSet =>
+        OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet)
+    }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
-// Parsers
-// Helpers
+// Schema
 val extend = (string("extend") ~ __).void
 
 // Description
@@ -162,7 +207,7 @@ val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
 
 val typeSystemDocument = typeSystemDefinition.rep
 
-// Type
+// // Type
 val typeDefinition = defer(
   scalarTypeDefinition |
     objectTypeDefinition |
@@ -224,8 +269,8 @@ val fieldDefinition =
     .map { case name -> argumentsDefinition -> tpe -> directives =>
       FieldDefinition(name, argumentsDefinition, tpe, directives)
     }
-val fieldsDefinition  = char('{') ~ __ *> (fieldDefinition <* __).rep <* char('}')
-val fieldsDefinition0 = fieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
+val fieldsDefinition = char('{') ~ __ *> (fieldDefinition <* __).rep <* char('}')
+// val fieldsDefinition0 = fieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
 val implementsInterfaces = recursive[NonEmptyList[NamedType]] { recurse =>
   (((string("implements") | char('&')).? ~ __).with1 *> (namedType <* __) ~ recurse.?).map {
     case tpe -> None       => NonEmptyList.one(tpe)
@@ -244,7 +289,8 @@ val objectTypeDefinitionB =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives0).map { case name -> impls -> dirs =>
     ObjectTypeDefinition(name, impls, dirs, Nil)
   }
-val objectTypeDefinition = desc ~ typeStr *> objectTypeDefinitionA.backtrack | objectTypeDefinitionB
+val objectTypeDefinition =
+  desc ~ typeStr *> objectTypeDefinitionA.backtrack | objectTypeDefinitionB
 
 val extendType = (extend ~ string("type") ~ __).void
 val objectTypeExtensionA =
@@ -341,13 +387,14 @@ val enumTypeExtensionB = ((name <* __) ~ (directives <* __) <* !char('{')).map {
 val enumTypeExtension = extendEnum *> enumTypeExtensionA.backtrack | enumTypeExtensionB
 
 // Input Objects
-val inputFieldsDefinition  = char('{') ~ __ *> inputValueDefinition.rep <* char('}')
-val inputFieldsDefinition0 = inputFieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
+val inputFieldsDefinition = char('{') ~ __ *> inputValueDefinition.rep <* char('}')
+// val inputFieldsDefinition0 = inputFieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
 
 val input = (desc ~ string("input") ~ __).void
-val inputObjectTypeDefinitionA = ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map {
-  case name -> dirs -> fields => InputObjectTypeDefinition(name, dirs, fields.toList)
-}
+val inputObjectTypeDefinitionA =
+  ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map { case name -> dirs -> fields =>
+    InputObjectTypeDefinition(name, dirs, fields.toList)
+  }
 val inputObjectTypeDefinitionB = ((name <* __) ~ (directives0 <* __) <* !char('{')).map {
   case name -> dirs => InputObjectTypeDefinition(name, dirs, Nil)
 }
@@ -364,9 +411,6 @@ val inputObjectTypeExtension =
   extendInput *> inputObjectTypeExtensionA.backtrack | inputObjectTypeExtensionB
 
 // Directives
-import TypeSystemDirectiveLocation.*
-import ExecutableDirectiveLocation.*
-
 val typeSystemDirectiveLocation =
   string("SCHEMA").map(_ => SCHEMA) |
     string("SCALAR").map(_ => SCALAR) |
@@ -407,3 +451,11 @@ val directiveDefinition =
     .map { case name -> args -> repeatable -> dirs =>
       DirectiveDefinition(name, args, repeatable, dirs)
     }
+
+// ///////////////////////////////////////////////////////////////////////////////////////////////////
+// // Definitions & Documents
+val executableDefinition = operationDefinition | fragmentDefinition
+val executableDocument   = __ *> (executableDefinition <* __).rep
+
+val definition = executableDefinition | typeSystemDefinitionOrExtension
+val document   = __ *> (definition <* __).rep
