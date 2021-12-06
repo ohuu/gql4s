@@ -6,13 +6,7 @@ package gql4s
 package parsers
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser as P, Parser0 as P0}
-import cats.parse.Parser.*
-import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
-import cats.parse.Numbers.{digit, nonZeroDigit}
 
-// import OperationType.*
-// import Selection.*
 import Type.*
 import Value.*
 
@@ -20,9 +14,10 @@ import Value.*
 // Definitions & Documents
 type Document           = NonEmptyList[Definition]
 type ExecutableDocument = NonEmptyList[ExecutableDefinition]
+type TypeSystemDocument = NonEmptyList[TypeSystemDefinition]
 
-trait Definition
-trait ExecutableDefinition extends Definition {
+sealed trait Definition
+sealed trait ExecutableDefinition extends Definition {
   def name: Option[Name]
 }
 
@@ -59,7 +54,7 @@ case class Directive(name: Name, arguments: List[Argument])
 // Fragments
 case class FragmentDefinition(
     override val name: Some[Name],
-    tpe: Type,
+    on: NamedType,
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
 ) extends ExecutableDefinition
@@ -77,7 +72,7 @@ enum Selection:
       directives: List[Directive],
       selectionSet: NonEmptyList[Selection]
   )
-  case FragmentSpread(name: Name, directivess: List[Directive])
+  case FragmentSpread(name: Name, directives: List[Directive])
 
 // Operations
 enum OperationType:
@@ -93,12 +88,16 @@ case class OperationDefinition(
 
 // ///////////////////////////////////////////////////////////////////////////////////////////////////
 // // Schema
-trait TypeSystemDefinition            extends Definition
-trait TypeSystemExtension             extends Definition
-trait TypeSystemDefinitionOrExtension extends Definition
+sealed trait TypeSystemDefinition            extends Definition
+sealed trait TypeSystemExtension             extends Definition
+sealed trait TypeSystemDefinitionOrExtension extends Definition
 
-trait TypeDefinition extends TypeSystemDefinition
-trait TypeExtension  extends TypeSystemExtension
+sealed trait TypeDefinition extends TypeSystemDefinition
+sealed trait TypeExtension  extends TypeSystemExtension
+
+// Helper traits
+sealed trait HasFields(val fields: List[FieldDefinition])
+sealed trait ImplementsInterfaces(val interfaces: List[NamedType])
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
 
@@ -199,7 +198,7 @@ case class InputObjectTypeExtension(
 ) extends TypeExtension
 
 // Directives
-trait DirectiveLocation
+sealed trait DirectiveLocation
 
 enum TypeSystemDirectiveLocation extends DirectiveLocation:
   case SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM,

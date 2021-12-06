@@ -6,7 +6,7 @@ package gql4s
 package parsers
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser as P, Parser0 as P0}
+import cats.parse.Parser as P
 import cats.parse.Parser.*
 import cats.parse.Rfc5234.{alpha, cr, crlf, hexdig, htab, lf, wsp}
 import cats.parse.Numbers.{digit, nonZeroDigit}
@@ -101,7 +101,7 @@ val objectField: P[ObjectField] = ((name <* __ ~ char(':') ~ __) ~ defer(value))
 val objectValue =
   (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(ObjectValue(_))
 
-// // Type References
+// Type References
 val namedType: P[NamedType] = name.map(NamedType(_))
 val listType: P[Type]       = (char('[') ~ __ *> defer(`type`) <* char(']')).map(ListType(_))
 val `type` = ((namedType | listType) ~ char('!').?).map {
@@ -109,7 +109,7 @@ val `type` = ((namedType | listType) ~ char('!').?).map {
   case (tpe, _)    => NonNullType(tpe)
 }
 
-// // Variable
+// Variable
 val defaultValue          = (char('=') ~ __ *> defer(value))
 val variable: P[Variable] = char('$') ~ __ *> name.map(Variable(_))
 val variableDefinition =
@@ -207,7 +207,7 @@ val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
 
 val typeSystemDocument = typeSystemDefinition.rep
 
-// // Type
+// Type
 val typeDefinition = defer(
   scalarTypeDefinition |
     objectTypeDefinition |

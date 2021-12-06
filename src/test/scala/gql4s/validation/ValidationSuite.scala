@@ -10,7 +10,8 @@ import parsers.*
 import munit.FunSuite
 
 class ValidationSuite extends FunSuite:
-  test("operations") {
+  test("operation names must be unique") {
+    // Operation names must be unique
     val doc1Str = """
       query getDogName {
         dog {
@@ -31,6 +32,7 @@ class ValidationSuite extends FunSuite:
       case _               => fail("failed to parse doc1")
     }
 
+    // Operation names must be unique
     val doc2Str = """
       query dogOperation {
         dog {
@@ -44,8 +46,102 @@ class ValidationSuite extends FunSuite:
         }
       }
     """
-    executableDocument.parse(doc2Str) match {
+    executableDocument.parse(doc2Str) match
       case Right(_ -> doc) => assert(operationNameUniqueness(doc).isLeft)
       case _               => fail("failed to parse doc2")
-    }
   }
+
+  test("anonymous operations must be singular") {
+    // There can only be one anonymous operation and it must be alone
+    val doc1 = """
+      {
+        dog {
+          name
+        }
+      }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(loneAnonOperation(doc).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+      {
+        dog {
+          name
+        }
+      }
+
+      query getName {
+        dog {
+          owner {
+            name
+          }
+        }
+      }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(loneAnonOperation(doc).isLeft)
+      case _               => fail("failed to parse doc2")
+  }
+
+  test("Subscriptions should have a single root") {
+    val doc1 = """
+      subscription sub {
+        newMessage {
+          body
+          sender
+        }
+      }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+      subscription sub {
+        ...newMessageFields
+      }
+
+      fragment newMessageFields on Subscription {
+        newMessage {
+          body
+          sender
+        }
+      }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isRight)
+      case _               => fail("failed to parse doc2")
+
+    val doc3 = """
+      subscription sub {
+        newMessage {
+          body
+          sender
+        }
+        disallowedSecondRootField
+      }
+    """
+    executableDocument.parse(doc3) match
+      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isLeft)
+      case _               => fail("failed to parse doc3")
+
+    val doc4 = """
+      subscription sub {
+        ...multipleSubscriptions
+      }
+
+      fragment multipleSubscriptions on Subscription {
+        newMessage {
+          body
+          sender
+        }
+        disallowedSecondRootField
+      }
+    """
+    executableDocument.parse(doc4) match
+      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isLeft)
+      case _               => fail("failed to parse doc4")
+  }
+
+end ValidationSuite
