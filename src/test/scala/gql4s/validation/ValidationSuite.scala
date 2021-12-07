@@ -10,6 +10,20 @@ import parsers.*
 import munit.FunSuite
 
 class ValidationSuite extends FunSuite:
+  // val schema = new Fixture[TypeSystemDocument]("schema") {
+  //   private var schema: TypeSystemDocument = null
+
+  //   def apply() = schema
+
+  //   override def beforeAll(): Unit = {
+  //     schema = typeSystemDocument.parse(schemaStr) match
+  //       case Right("" -> schema) => schema
+  //       case _                   => fail("failed to parse schema")
+  //   }
+  // }
+
+  // override def munitFixtures = List(schema)
+
   test("operation names must be unique") {
     // Operation names must be unique
     val doc1Str = """
@@ -84,7 +98,7 @@ class ValidationSuite extends FunSuite:
       case _               => fail("failed to parse doc2")
   }
 
-  test("Subscriptions should have a single root") {
+  test("subscriptions should have a single root") {
     val doc1 = """
       subscription sub {
         newMessage {
@@ -142,6 +156,36 @@ class ValidationSuite extends FunSuite:
     executableDocument.parse(doc4) match
       case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isLeft)
       case _               => fail("failed to parse doc4")
+  }
+
+  test("fields within selection sets must exist") {
+    val doc1 = """
+      query {
+        dog {
+          nickname
+        }
+      }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(fieldsExist(doc, schemaDoc).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+      query {
+        dog {
+          nickname
+          barkVolume
+          owner {
+            name
+            thoughts
+          }
+        }
+      }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(fieldsExist(doc, schemaDoc).isRight)
+      case _               => fail("failed to parse doc2")
+
   }
 
 end ValidationSuite

@@ -198,15 +198,6 @@ val extend = (string("extend") ~ __).void
 // Description
 val desc = (stringValue.? ~ __).void.with1
 
-// Type System
-val typeSystemDefinition = defer(schemaDefinition | typeDefinition | directiveDefinition)
-val typeSystemExtension  = defer(schemaExtension | typeExtension)
-
-val typeSystemDefinitionOrExtension = typeSystemDefinition | typeSystemExtension
-val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
-
-val typeSystemDocument = typeSystemDefinition.rep
-
 // Type
 val typeDefinition = defer(
   scalarTypeDefinition |
@@ -279,7 +270,7 @@ val implementsInterfaces = recursive[NonEmptyList[NamedType]] { recurse =>
 }
 val implementsInterfaces0 = implementsInterfaces.?.map(_.map(_.toList).getOrElse(Nil))
 
-val typeStr = (string("type") ~ __).void
+val typeStart = (string("type") ~ __).void
 val objectTypeDefinitionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition).map {
     case name -> impls -> dirs -> fields =>
@@ -290,7 +281,7 @@ val objectTypeDefinitionB =
     ObjectTypeDefinition(name, impls, dirs, Nil)
   }
 val objectTypeDefinition =
-  desc ~ typeStr *> objectTypeDefinitionA.backtrack | objectTypeDefinitionB
+  desc ~ typeStart *> (objectTypeDefinitionA.backtrack | objectTypeDefinitionB)
 
 val extendType = (extend ~ string("type") ~ __).void
 val objectTypeExtensionA =
@@ -308,7 +299,7 @@ val objectTypeExtension =
   extendType *> (objectTypeExtensionA.backtrack | objectTypeExtensionB.backtrack | objectTypeExtensionC)
 
 // Interfaces
-val interface = (desc ~ string("interface") ~ __).void
+val interfaceStart = (string("interface") ~ __).void
 val interfaceTypeDefinitionA =
   ((name <* __) ~ (implementsInterfaces0 <* __) ~ (directives0 <* __) ~ fieldsDefinition)
     .map { case name -> impls -> dirs -> fields =>
@@ -317,7 +308,7 @@ val interfaceTypeDefinitionA =
 val interfaceTypeDefinitionB = ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives0)
   .map { case name -> impls -> dirs => InterfaceTypeDefinition(name, impls, dirs, Nil) }
 val interfaceTypeDefinition =
-  interface *> interfaceTypeDefinitionA.backtrack | interfaceTypeDefinitionB
+  desc ~ interfaceStart *> (interfaceTypeDefinitionA.backtrack | interfaceTypeDefinitionB)
 
 val extendInterface = (extend ~ string("interface") ~ __).void
 val interfaceTypeExtensionA =
@@ -336,23 +327,30 @@ val interfaceTypeExtension =
   extendInterface *> (interfaceTypeExtensionA.backtrack | interfaceTypeExtensionB.backtrack | interfaceTypeExtensionC)
 
 // Union
-val unionMemberType = recursive[NonEmptyList[NamedType]] { recurse =>
-  ((char('|').? ~ __).with1 *> (namedType <* __) ~ recurse.?).map {
-    case tpe -> None       => NonEmptyList.one(tpe)
-    case tpe -> Some(tpes) => tpe :: tpes
+val unionStart = (string("union") ~ __).void
+val unionMemberTypes =
+  ((__ ~ (char('|') ~ __).?) *> (namedType <* __).? ~
+    recursive[NonEmptyList[NamedType]] { recurse =>
+      ((char('|') ~ __).with1 *> (namedType <* __) ~ recurse.?).map {
+        case tpe -> None       => NonEmptyList.one(tpe)
+        case tpe -> Some(tpes) => tpe :: tpes
+      }
+    }.?).map {
+    case None -> None                  => Nil
+    case Some(member) -> None          => List(member)
+    case Some(member) -> Some(members) => (member :: members).toList
+    case _                             => Nil
   }
-}
-val unionMemberType0 = unionMemberType.?.map(_.map(_.toList).getOrElse(Nil))
+val unionMemberType0 = unionMemberTypes.?.map(_.getOrElse(Nil))
 val unionTypeDefinition =
-  (desc ~ string("union") ~ __ *> (name <* __) ~ (directives0 <* __ ~ char(
-    '='
-  ) <* __) ~ unionMemberType0).map { case name -> dirs -> unionMemberTypes =>
-    UnionTypeDefinition(name, dirs, unionMemberTypes)
-  }
+  (desc ~ unionStart *> ((name <* __) ~ (directives0 <* (__ ~ char('='))) ~ unionMemberType0))
+    .map { case name -> dirs -> unionMemberTypes =>
+      UnionTypeDefinition(name, dirs, unionMemberTypes)
+    }
 
 val extendUnion = (extend ~ string("union") ~ __).void
 val unionTypeExtensionA =
-  ((name <* __) ~ (directives0 <* __ ~ char('=') ~ __) ~ unionMemberType).map {
+  ((name <* __) ~ (directives0 <* (__ ~ char('='))) ~ unionMemberTypes).map {
     case name -> dirs -> unionMembers => UnionTypeExtension(name, dirs, unionMembers.toList)
   }
 val unionTypeExtensionB = ((name <* __) ~ (directives <* __ ~ char('=') ~ __)).map {
@@ -456,6 +454,12 @@ val directiveDefinition =
 // // Definitions & Documents
 val executableDefinition = operationDefinition | fragmentDefinition
 val executableDocument   = __ *> (executableDefinition <* __).rep
+
+val typeSystemDefinition            = schemaDefinition | typeDefinition | directiveDefinition
+val typeSystemExtension             = schemaExtension | typeExtension
+val typeSystemDefinitionOrExtension = typeSystemDefinition | typeSystemExtension
+val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
+val typeSystemDocument              = __ *> (typeSystemDefinition <* __).rep
 
 val definition = executableDefinition | typeSystemDefinitionOrExtension
 val document   = __ *> (definition <* __).rep

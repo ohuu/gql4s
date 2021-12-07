@@ -9,26 +9,32 @@ import cats.data.NonEmptyList
 import cats.implicits.*
 import gql4s.parsers.*
 
+import GqlError.*
 import OperationType.*
 import Selection.*
 import Type.*
-import scala.annotation.tailrec
+
+case class RootTypeNames(
+    query: Option[Name],
+    mutation: Option[Name],
+    subscription: Option[Name]
+)
 
 // 5.2.1.1 (10-2021)
-def operationNameUniqueness(doc: ExecutableDocument): Either[String, ExecutableDocument] =
+def operationNameUniqueness(doc: ExecutableDocument): Either[GqlError, ExecutableDocument] =
   val ops       = doc.collect { case x: OperationDefinition => x }
   val uniqueOps = ops.distinctBy(_.name)
-  if uniqueOps.length == ops.length then doc.asRight else "Fuck".asLeft
+  if uniqueOps.length == ops.length then doc.asRight else NameNotUnique.asLeft
 
 // 5.2.2.1 (10-2021)
-def loneAnonOperation(doc: ExecutableDocument): Either[String, ExecutableDocument] =
+def loneAnonOperation(doc: ExecutableDocument): Either[GqlError, ExecutableDocument] =
   val ops      = doc.collect { case x: OperationDefinition => x }
   val namedOps = ops.filter(_.name.isDefined)
   val anonOps  = ops.filter(_.name.isEmpty)
 
   if anonOps.isEmpty then doc.asRight
   else if anonOps.length == 1 && namedOps.isEmpty then doc.asRight
-  else "Shit".asLeft
+  else AnonymousQueryNotAlone.asLeft
 
 // 5.2.3.1 (10-2021)
 // Checks to see if the used fragment has a single root
@@ -137,13 +143,14 @@ private def fieldsExist(
     schema: TypeSystemDocument
 ): Boolean =
   selection match
-    case Field(_, name, _, _, Nil) => fieldExists(name, typeName, schema)
+    case Field(_, name, _, _, Nil) =>
+      fieldExists(name, typeName, schema)
 
     case Field(_, name, _, _, selectionSet) =>
       fieldExists(name, typeName, schema) &
-        findFieldType(name, typeName, schema).flatMap { typeName =>
-          selectionSet.find(fieldsExist(_, typeName, schema))
-        }.isDefined
+        findFieldType(name, typeName, schema)
+          .map { typeName => selectionSet.forall(fieldsExist(_, typeName, schema)) }
+          .getOrElse(false) // TODO: Return an error message describing what happened
 
     case InlineFragment(tpe, _, selectionSet) =>
       selectionSet.find(fieldsExist(_, typeName, schema)).isDefined
@@ -155,8 +162,19 @@ private def fieldsExist(
 private def fieldsExist(fragDef: FragmentDefinition, schema: TypeSystemDocument): Boolean =
   fragDef.selectionSet.find(!fieldsExist(_, fragDef.on.name, schema)).isEmpty
 
-private def fieldsExist(opDef: OperationDefinition, schema: TypeSystemDocument): Boolean =
-  opDef.selectionSet.find(!fieldsExist(_, opDef.name.get, schema)).isEmpty
+private def fieldsExist(
+    opDef: OperationDefinition,
+    rootTypeNames: RootTypeNames,
+    schema: TypeSystemDocument
+): Boolean =
+  val typeName = opDef.operationType match
+    case Query        => rootTypeNames.query
+    case Mutation     => rootTypeNames.mutation
+    case Subscription => rootTypeNames.subscription
+
+  typeName match
+    case None           => false // TODO: should return error rather than just `false`
+    case Some(typeName) => opDef.selectionSet.find(!fieldsExist(_, typeName, schema)).isEmpty
 
 def fieldsExist(
     doc: ExecutableDocument,
@@ -165,11 +183,30 @@ def fieldsExist(
   val fragDefs = doc.collect { case f: FragmentDefinition => f }
   val opDefs   = doc.collect { case o: OperationDefinition => o }
 
+  // find root definitions for query, mutation and subscription.
+  // TODO: spec says there should be at most one schema but doesn't mention any validation rules
+  //       to enforce that. Should I write one?
+  val schemaDef = schema.collect { case s: SchemaDefinition => s }.headOption
+  val rootTypeNames = schemaDef match
+    case Some(SchemaDefinition(_, roots)) =>
+      RootTypeNames(
+        query = roots.find(_.operationType == Query).map(_.namedType.name),
+        mutation = roots.find(_.operationType == Mutation).map(_.namedType.name),
+        subscription = roots.find(_.operationType == Subscription).map(_.namedType.name)
+      )
+    case None =>
+      val objTypeDefs = schema.collect { case o: ObjectTypeDefinition => o }
+      RootTypeNames(
+        query = objTypeDefs.find(_.name == Name("Query")).map(_.name),
+        mutation = objTypeDefs.find(_.name == Name("Mutation")).map(_.name),
+        subscription = objTypeDefs.find(_.name == Name("Subscription")).map(_.name)
+      )
+
   // check all fragment definitions first, only when
   // they have all passed check the operation definitions.
   val isValid =
     fragDefs.find(!fieldsExist(_, schema)).isEmpty &
-      opDefs.find(!fieldsExist(_, schema)).isEmpty
+      opDefs.find(!fieldsExist(_, rootTypeNames, schema)).isEmpty
 
   if isValid then doc.asRight else "Arse".asLeft
 end fieldsExist
