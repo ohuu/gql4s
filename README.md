@@ -1,3 +1,5 @@
+![example workflow](https://github.com/ohuu/gql4s/actions/workflows/test.yml/badge.svg)
+
 ## sbt project compiled with Scala 3
 
 ### Usage
