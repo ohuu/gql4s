@@ -275,6 +275,9 @@ def fieldsExist(
     case Nil  => doc.asRight
     case errs => NonEmptyList.fromListUnsafe(errs).asLeft
 
+// 5.3.2 (10-2021)
+// TODO: Implement this validator.
+
 // 5.3.3 (10-2021)
 private def leafNodes(selection: Selection, onType: Name, schema: TypeSystemDocument): Boolean =
   ???
