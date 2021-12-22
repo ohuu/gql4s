@@ -11,6 +11,8 @@ enum GqlError:
   case MissingTypeDefinition(namedType: NamedType)
   case MissingFragmentDefinition(fragName: Name)
   case MissingField(fieldName: Name, namedType: Option[NamedType] = None)
+  case MissingSelection(fieldName: Name, namedType: NamedType)
+  case IllegalSelection(fieldName: Name, namedType: NamedType)
   case SubscriptionHasMultipleRoots
   case NameNotUnique
   case AnonymousQueryNotAlone

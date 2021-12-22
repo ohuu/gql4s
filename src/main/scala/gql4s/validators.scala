@@ -224,12 +224,18 @@ private def fieldsExist(
               case None => MissingField(name) :: accErrors
 
               // We found it but it's a leaf type so we can't recurse
-              case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) => accErrors
+              case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) =>
+                // 5.3.3
+                if fieldSelectionSet.isEmpty then accErrors
+                else IllegalSelection(name, namedType) :: accErrors
 
               // We found an object type so we need to recurse
               case Some(typeDef) =>
-                val typeAndSelection = fieldSelectionSet.map(NamedType(typeDef.name) -> _)
-                recurse(typeAndSelection ::: tail, accErrors)
+                // 5.3.3
+                if fieldSelectionSet.isEmpty then MissingSelection(name, namedType) :: accErrors
+                else
+                  val typeAndSelection = fieldSelectionSet.map(NamedType(typeDef.name) -> _)
+                  recurse(typeAndSelection ::: tail, accErrors)
 
           case InlineFragment(Some(namedType), _, fragSelectionSet) =>
             val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
