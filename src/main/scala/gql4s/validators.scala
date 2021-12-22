@@ -23,27 +23,49 @@ import Type.*
 private def findFragDef(fragName: Name, doc: ExecutableDocument): Option[FragmentDefinition] =
   doc.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
 
-private def findTypeDef(typeName: Name, schema: TypeSystemDocument): Option[TypeDefinition] =
-  schema.collect { case t: TypeDefinition => t }.find(_.name == typeName)
+private def findObjTypeDef(
+    namedType: NamedType,
+    schema: TypeSystemDocument
+): Option[ObjectTypeDefinition] =
+  schema.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
 
+private def findTypeDef(namedType: NamedType, schema: TypeSystemDocument): Option[TypeDefinition] =
+  namedType match
+    case NamedType(Name("Int"))     => Some(ScalarTypeDefinition(Name("Int"), Nil))
+    case NamedType(Name("Float"))   => Some(ScalarTypeDefinition(Name("Float"), Nil))
+    case NamedType(Name("String"))  => Some(ScalarTypeDefinition(Name("String"), Nil))
+    case NamedType(Name("Boolean")) => Some(ScalarTypeDefinition(Name("Boolean"), Nil))
+    case NamedType(Name("ID"))      => Some(ScalarTypeDefinition(Name("ID"), Nil))
+    case _ => schema.collect { case t: TypeDefinition => t }.find(_.name == namedType.name)
+
+/** Find the given fields type definition on the given type.
+  *
+  * @param fieldName
+  *   The name of the field to find.
+  * @param namedType
+  *   The type to find the field on.
+  * @return
+  *   Some type definition if the field is found, None if not.
+  */
 private def findFieldTypeDef(
     fieldName: Name,
-    typeName: Name,
+    namedType: NamedType,
     schema: TypeSystemDocument
 ): Option[TypeDefinition] =
-  schema
-    .collect { case t: TypeDefinition => t }
-    .find(_.name == typeName)
+  findTypeDef(namedType, schema)
     .flatMap {
-      case ObjectTypeDefinition(name, _, _, fields) if name == typeName =>
-        fields.find(_.name == fieldName).map(_.tpe.name).flatMap(findTypeDef(_, schema))
+      case ObjectTypeDefinition(_, _, _, fields) =>
+        fields
+          .find(_.name == fieldName)
+          .flatMap(field => findTypeDef(NamedType(field.tpe.name), schema))
 
-      case InterfaceTypeDefinition(name, _, _, fields) if name == typeName =>
-        fields.find(_.name == fieldName).map(_.tpe.name).flatMap(findTypeDef(_, schema))
+      case InterfaceTypeDefinition(_, _, _, fields) =>
+        fields
+          .find(_.name == fieldName)
+          .flatMap(field => findTypeDef(NamedType(field.tpe.name), schema))
 
-      case UnionTypeDefinition(name, _, members) if name == typeName =>
+      case UnionTypeDefinition(_, _, members) =>
         members
-          .map(_.name)
           .find(findFieldTypeDef(fieldName, _, schema).isDefined)
           .flatMap(findTypeDef(_, schema))
 
@@ -54,19 +76,19 @@ end findFieldTypeDef
 private def findOperationTypeDef(
     opType: OperationType,
     schema: TypeSystemDocument
-): Option[TypeDefinition] =
+): Option[ObjectTypeDefinition] =
   val schemaDef = schema.collect { case s: SchemaDefinition => s }.headOption
   schemaDef match
     case Some(SchemaDefinition(_, roots)) =>
       roots
         .find(_.operationType == opType)
-        .map(_.namedType.name)
-        .flatMap(findTypeDef(_, schema))
+        .map(_.namedType)
+        .flatMap(findObjTypeDef(_, schema))
     case None =>
       opType match
-        case Query        => findTypeDef(Name("Query"), schema)
-        case Mutation     => findTypeDef(Name("Mutation"), schema)
-        case Subscription => findTypeDef(Name("Subscription"), schema)
+        case Query        => findObjTypeDef(NamedType(Name("Query")), schema)
+        case Mutation     => findObjTypeDef(NamedType(Name("Mutation")), schema)
+        case Subscription => findObjTypeDef(NamedType(Name("Subscription")), schema)
 end findOperationTypeDef
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,33 +155,35 @@ end subscriptionSingleRoot
   */
 private def fieldExists(
     fieldName: Name,
-    typeName: Name,
+    namedType: NamedType,
     schema: TypeSystemDocument
 ): Option[GqlError] =
   @tailrec
-  def recurse(typeNames: List[NamedType]): Boolean =
-    typeNames match
+  def recurse(namedTypes: List[NamedType]): Boolean =
+    namedTypes match
       case Nil => false
-      case typeName :: tail =>
-        val typeDef = schema.collect { case o: TypeDefinition => o }.find(_.name == typeName)
+      case namedType :: tail =>
+        val typeDef = findTypeDef(namedType, schema)
 
         typeDef match
           case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
             if fields.find(_.name == fieldName).isDefined then true
-            else recurse(tail ::: interfaces)
+            else recurse(interfaces ::: tail)
 
           case Some(InterfaceTypeDefinition(_, interfaces, _, fields)) =>
             if fields.find(_.name == fieldName).isDefined then true
-            else recurse(tail ::: interfaces)
+            else recurse(interfaces ::: tail)
 
           case Some(UnionTypeDefinition(_, _, members)) =>
-            recurse(tail ::: members)
+            recurse(members ::: tail)
 
+          // The type that we're checking exists but isn't a type with fields
+          // therefore the field can't exist so we just return false
           case _ => false
   end recurse
 
-  if recurse(List(NamedType(typeName))) then None
-  else Some(MissingField(fieldName, Some(typeName)))
+  if recurse(List(namedType)) then None
+  else Some(MissingField(fieldName, Some(namedType)))
 end fieldExists
 
 /** Checks a selection set to make sure all fields exist. This is a recursive function that checks
@@ -178,49 +202,54 @@ end fieldExists
   */
 private def fieldsExist(
     selectionSet: List[Selection],
-    typeName: Name,
+    namedType: NamedType,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   @tailrec
   def recurse(
-      accSelectionSet: List[(Name, Selection)],
+      accSelectionSet: List[(NamedType, Selection)],
       acc: List[GqlError] = Nil
   ): List[GqlError] =
     accSelectionSet match
       case Nil => acc
-      case (typeName, selection) :: tail =>
+      case (namedType, selection) :: tail =>
         selection match
           case Field(_, name, _, _, fieldSelectionSet) =>
-            val accErrors = fieldExists(name, typeName, schema) match
+            val accErrors = fieldExists(name, namedType, schema) match
               case None      => acc
               case Some(err) => err :: acc
 
-            findFieldTypeDef(name, typeName, schema) match
+            findFieldTypeDef(name, namedType, schema) match
               case None => MissingField(name) :: accErrors
+
+              // We found it but it's a leaf type so we can't recurse
+              case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) => accErrors
+
+              // We found an object type so we need to recurse
               case Some(typeDef) =>
-                val typeAndSelection = fieldSelectionSet.map(typeDef.name -> _)
+                val typeAndSelection = fieldSelectionSet.map(NamedType(typeDef.name) -> _)
                 recurse(typeAndSelection ::: tail, accErrors)
 
-          case InlineFragment(Some(NamedType(typeName)), _, fragSelectionSet) =>
-            val typeAndSelection = fragSelectionSet.map(typeName -> _).toList
+          case InlineFragment(Some(namedType), _, fragSelectionSet) =>
+            val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
             recurse(typeAndSelection ::: tail, acc)
 
           // Type name has been ommited so this inline fragment has the same type as enclosing
-          // context (e.g. the current typeName)
+          // context (e.g. the current namedType)
           case InlineFragment(None, _, fragSelectionSet) =>
-            val typeAndSelection = fragSelectionSet.map(typeName -> _).toList
+            val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
             recurse(typeAndSelection ::: tail, acc)
 
           case FragmentSpread(name, _) =>
             findFragDef(name, doc) match
               case None => MissingFragmentDefinition(name) :: acc
-              case Some(FragmentDefinition(_, NamedType(typeName), _, fragSelectionSet)) =>
-                val typeAndSelection = fragSelectionSet.map(typeName -> _).toList
+              case Some(FragmentDefinition(_, namedType, _, fragSelectionSet)) =>
+                val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
                 recurse(typeAndSelection ::: tail, acc)
   end recurse
 
-  recurse(selectionSet.map(typeName -> _))
+  recurse(selectionSet.map(namedType -> _))
 end fieldsExist
 
 private def fieldsExist(
@@ -231,7 +260,7 @@ private def fieldsExist(
   findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
-      fieldsExist(opDef.selectionSet.toList, typeDef.name, doc, schema)
+      fieldsExist(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
 
 def fieldsExist(
     doc: ExecutableDocument,

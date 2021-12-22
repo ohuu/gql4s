@@ -165,7 +165,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(fieldsExist(doc, schemaDoc).isRight)
+      case Right(_ -> doc) => assert(clue(fieldsExist(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """

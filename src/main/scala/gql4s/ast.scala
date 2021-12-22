@@ -88,19 +88,13 @@ case class OperationDefinition(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Schema
-// Helper traits
-sealed trait HasName:
-  val name: Name
-
-sealed trait ImplementsInterfaces:
-  val interfaces: List[NamedType]
-
 sealed trait TypeSystemDefinition            extends Definition
 sealed trait TypeSystemExtension             extends Definition
 sealed trait TypeSystemDefinitionOrExtension extends Definition
 
-sealed trait TypeDefinition extends TypeSystemDefinition, HasName
-sealed trait TypeExtension  extends TypeSystemExtension
+sealed trait TypeDefinition extends TypeSystemDefinition:
+  def name: Name
+sealed trait TypeExtension extends TypeSystemExtension
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
 
