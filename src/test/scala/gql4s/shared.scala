@@ -1,7 +1,6 @@
 package gql4s
 
 import cats.data.NonEmptyList
-import gql4s.parsers.*
 import Type.*
 import Value.*
 
