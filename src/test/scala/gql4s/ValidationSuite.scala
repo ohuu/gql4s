@@ -8,20 +8,6 @@ import cats.data.NonEmptyList
 import munit.FunSuite
 
 class ValidationSuite extends FunSuite:
-  // val schema = new Fixture[TypeSystemDocument]("schema") {
-  //   private var schema: TypeSystemDocument = null
-
-  //   def apply() = schema
-
-  //   override def beforeAll(): Unit = {
-  //     schema = typeSystemDocument.parse(schemaStr) match
-  //       case Right("" -> schema) => schema
-  //       case _                   => fail("failed to parse schema")
-  //   }
-  // }
-
-  // override def munitFixtures = List(schema)
-
   test("operation names must be unique") {
     // Operation names must be unique
     val doc1Str = """
@@ -165,7 +151,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(fieldsExist(doc, schemaDoc)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -181,9 +167,31 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(fieldsExist(doc, schemaDoc).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc2")
 
+  }
+
+  test("leaf nodes should not have selection sets") {
+    val doc1 = """
+    fragment scalarSelection on Dog {
+      barkVolume
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+    fragment scalarSelectionsNotAllowedOnInt on Dog {
+      barkVolume {
+        sinceWhen
+      }
+    }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc2")
   }
 
 end ValidationSuite

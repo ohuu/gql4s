@@ -186,8 +186,9 @@ private def fieldExists(
   else Some(MissingField(fieldName, Some(namedType)))
 end fieldExists
 
-/** Checks a selection set to make sure all fields exist. This is a recursive function that checks
-  * each new level of the selection hierarchy.
+/** Performs various validation steps on the selection sets. Bear in mind that this function will
+  * not validate fragment definitions but will validate inline fragment definitions, you must call
+  * validateFragmentDefinition as well as this function to fully validate an executable document.
   *
   * @param selectionSet
   *   The selectionSet to recursively validate.
@@ -200,10 +201,9 @@ end fieldExists
   * @return
   *   Return a list of errors or Nil if there weren't any.
   */
-private def fieldsExist(
+private def validateSelectionSet(
     selectionSet: List[Selection],
     namedType: NamedType,
-    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   @tailrec
@@ -216,6 +216,7 @@ private def fieldsExist(
       case (namedType, selection) :: tail =>
         selection match
           case Field(_, name, _, _, fieldSelectionSet) =>
+            // 5.3.1
             val accErrors = fieldExists(name, namedType, schema) match
               case None      => acc
               case Some(err) => err :: acc
@@ -247,55 +248,43 @@ private def fieldsExist(
             val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
             recurse(typeAndSelection ::: tail, acc)
 
-          case FragmentSpread(name, _) =>
-            findFragDef(name, doc) match
-              case None => MissingFragmentDefinition(name) :: acc
-              case Some(FragmentDefinition(_, namedType, _, fragSelectionSet)) =>
-                val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
-                recurse(typeAndSelection ::: tail, acc)
+          // We have already validated fragment spreads by this stage so ignore, don't recurse
+          case FragmentSpread(name, _) => acc
   end recurse
 
   recurse(selectionSet.map(namedType -> _))
-end fieldsExist
+end validateSelectionSet
 
-private def fieldsExist(
+/** */
+private def validateOperationDefinition(
     opDef: OperationDefinition,
-    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
-      fieldsExist(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
+      validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), schema)
 
-def fieldsExist(
+private def validateFragmentDefinition(
+    fragDef: FragmentDefinition,
+    schema: TypeSystemDocument
+): List[GqlError] = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, schema)
+
+def validate(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): Either[NonEmptyList[GqlError], ExecutableDocument] =
   val errors = doc
-    .collect { case o: OperationDefinition => o }
-    .map(fieldsExist(_, doc, schema))
+    .map {
+      case o: OperationDefinition => validateOperationDefinition(o, schema)
+      case o: FragmentDefinition  => validateFragmentDefinition(o, schema)
+    }
     .reduce(_ ::: _)
 
   errors match
     case Nil  => doc.asRight
     case errs => NonEmptyList.fromListUnsafe(errs).asLeft
+end validate
 
 // 5.3.2 (10-2021)
 // TODO: Implement this validator.
-
-// 5.3.3 (10-2021)
-private def leafNodes(selection: Selection, onType: Name, schema: TypeSystemDocument): Boolean =
-  ???
-
-def leafNodes(
-    doc: ExecutableDocument,
-    schema: TypeSystemDocument
-): Either[GqlError, ExecutableDocument] =
-  doc.find {
-    case FragmentDefinition(_, NamedType(onType), _, selectionSet) =>
-      selectionSet.find(leafNodes(_, onType, schema)).isEmpty
-    case OperationDefinition(opType, _, _, _, selectionSet) => ???
-  }
-
-  ???
