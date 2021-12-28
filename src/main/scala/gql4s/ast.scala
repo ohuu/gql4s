@@ -124,12 +124,17 @@ case class FieldDefinition(
     tpe: Type,
     directives: List[Directive]
 )
+
+sealed trait HasFields:
+  def fields: List[FieldDefinition]
+
 case class ObjectTypeDefinition(
     name: Name,
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeDefinition
+) extends TypeDefinition,
+      HasFields
 
 case class ObjectTypeExtension(
     name: Name,
@@ -144,7 +149,8 @@ case class InterfaceTypeDefinition(
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeDefinition
+) extends TypeDefinition,
+      HasFields
 
 case class InterfaceTypeExtension(
     name: Name,

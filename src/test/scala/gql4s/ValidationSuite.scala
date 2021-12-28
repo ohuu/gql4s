@@ -194,4 +194,28 @@ class ValidationSuite extends FunSuite:
       case _               => fail("failed to parse doc2")
   }
 
+  test("arguments") {
+    val doc1 = """
+    fragment argOnRequiredArg on Dog {
+      doesKnowCommand(dogCommand: SIT)
+    }
+
+    fragment argOnOptional on Dog {
+      isHouseTrained(atOtherHomes: true) @include(if: true)
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+    fragment invalidArgName on Dog {
+      doesKnowCommand(command: CLEAN_UP_HOUSE)
+    }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc2")
+  }
+
 end ValidationSuite
