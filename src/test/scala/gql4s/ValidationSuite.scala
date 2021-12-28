@@ -216,6 +216,15 @@ class ValidationSuite extends FunSuite:
     executableDocument.parse(doc2) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
       case _               => fail("failed to parse doc2")
+
+    val doc3 = """
+    fragment argOnRequiredArg on Dog {
+      doesKnowCommand(dogCommand: SIT, dogCommand: SIT)
+    }
+    """
+    executableDocument.parse(doc3) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc3")
   }
 
 end ValidationSuite

@@ -14,6 +14,7 @@ enum GqlError:
   case MissingSelection(fieldName: Name, namedType: NamedType)
   case MissingArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
+  case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case SubscriptionHasMultipleRoots
   case NameNotUnique
   case AnonymousQueryNotAlone

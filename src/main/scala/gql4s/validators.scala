@@ -183,15 +183,23 @@ private def validateSelectionSet(
             findFieldDef(fieldName, namedType, schema) match
               case None           => MissingField(fieldName, Some(namedType)) :: acc
               case Some(fieldDef) =>
-                // 5.4.1
-                val argErrors =
+                // 5.4.1 args exist
+                val argExistenceErrors =
                   arguments
                     .flatMap { arg =>
                       fieldDef.arguments.find(_.name == arg.name) match
                         case None => MissingArgument(arg.name, fieldName, namedType) :: Nil
                         case _    => Nil
                     }
-                val accErrors = argErrors ::: acc
+
+                // 5.4.2 args are unique
+                val argUniquenessErrors = arguments
+                  .groupBy(_.name)
+                  .filter { case (argName, args) => args.size > 1 }
+                  .map { case (argName, _) => DuplicateArgument(argName, fieldName, namedType) }
+                  .toList
+
+                val accErrors = argExistenceErrors ::: argUniquenessErrors ::: acc
 
                 val fieldNamedType: NamedType = NamedType(fieldDef.tpe.name)
 
