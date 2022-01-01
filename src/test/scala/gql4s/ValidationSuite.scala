@@ -225,6 +225,15 @@ class ValidationSuite extends FunSuite:
     executableDocument.parse(doc3) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
       case _               => fail("failed to parse doc3")
+
+    val doc4 = """
+    query MyQuery {
+      multipleRequirements(x: 1337)
+    }
+    """
+    executableDocument.parse(doc4) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc4")
   }
 
 end ValidationSuite

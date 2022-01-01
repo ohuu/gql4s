@@ -12,6 +12,7 @@ enum GqlError:
   case MissingFragmentDefinition(fragName: Name)
   case MissingField(fieldName: Name, namedType: Option[NamedType] = None)
   case MissingSelection(fieldName: Name, namedType: NamedType)
+  case MissingArgumentDefinition(argName: Name, fieldName: Name, namedType: NamedType)
   case MissingArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)

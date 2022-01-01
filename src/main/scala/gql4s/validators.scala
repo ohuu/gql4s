@@ -184,22 +184,38 @@ private def validateSelectionSet(
               case None           => MissingField(fieldName, Some(namedType)) :: acc
               case Some(fieldDef) =>
                 // 5.4.1 args exist
+                // TODO: Include directives in this
                 val argExistenceErrors =
                   arguments
                     .flatMap { arg =>
                       fieldDef.arguments.find(_.name == arg.name) match
-                        case None => MissingArgument(arg.name, fieldName, namedType) :: Nil
-                        case _    => Nil
+                        case None =>
+                          MissingArgumentDefinition(arg.name, fieldName, namedType) :: Nil
+                        case _ => Nil
                     }
 
                 // 5.4.2 args are unique
+                // TODO: Include directives in this
                 val argUniquenessErrors = arguments
                   .groupBy(_.name)
                   .filter { case (argName, args) => args.size > 1 }
                   .map { case (argName, _) => DuplicateArgument(argName, fieldName, namedType) }
                   .toList
 
-                val accErrors = argExistenceErrors ::: argUniquenessErrors ::: acc
+                // 5.4.2.1 required args
+                // TODO: Include directives in this
+                val requiredArgs = fieldDef.arguments
+                  .filter {
+                    case InputValueDefinition(_, _: NonNullType, None, _) => true
+                    case _                                                => false
+                  }
+                  .map(_.name)
+                val requiredArgErrors = requiredArgs
+                  .filter(argName => arguments.find(_.name == argName).isEmpty)
+                  .map(argName => MissingArgument(argName, fieldName, namedType))
+
+                val accErrors =
+                  argExistenceErrors ::: argUniquenessErrors ::: requiredArgErrors ::: acc
 
                 val fieldNamedType: NamedType = NamedType(fieldDef.tpe.name)
 

@@ -11,6 +11,7 @@ import Value.*
 val schemaStr = """
   type Query {
     dog: Dog
+    multipleRequirements(x: Int!, y: Int!): Int!
   }
 
   enum DogCommand {
@@ -68,7 +69,18 @@ val schemaDoc = NonEmptyList.of(
     Name("Query"),
     Nil,
     Nil,
-    List(FieldDefinition(Name("dog"), Nil, NamedType(Name("Dog")), Nil))
+    List(
+      FieldDefinition(Name("dog"), Nil, NamedType(Name("Dog")), Nil),
+      FieldDefinition(
+        Name("multipleRequirements"),
+        List(
+          InputValueDefinition(Name("x"), NonNullType(NamedType(Name("Int"))), None, Nil),
+          InputValueDefinition(Name("y"), NonNullType(NamedType(Name("Int"))), None, Nil)
+        ),
+        NonNullType(NamedType(Name("Int"))),
+        Nil
+      )
+    )
   ),
   EnumTypeDefinition(
     Name("DogCommand"),
