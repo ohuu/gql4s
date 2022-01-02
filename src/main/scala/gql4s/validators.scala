@@ -273,14 +273,24 @@ def validate(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): Either[NonEmptyList[GqlError], ExecutableDocument] =
-  val errors = doc
+  // 5.5.1.1 fragment definition unique name
+  val dupFragErrors = doc
+    .collect { case o: FragmentDefinition => o }
+    .groupBy(_.name)
+    .filter { case _ -> xs => xs.length > 1 }
+    .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
+    .toList
+
+  val validationErrors = doc
     .map {
       case o: OperationDefinition => validateOperationDefinition(o, schema)
       case o: FragmentDefinition  => validateFragmentDefinition(o, schema)
     }
     .reduce(_ ::: _)
 
-  errors match
+  val accErrors = dupFragErrors ::: validationErrors
+
+  accErrors match
     case Nil  => doc.asRight
     case errs => NonEmptyList.fromListUnsafe(errs).asLeft
 end validate

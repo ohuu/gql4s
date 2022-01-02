@@ -7,6 +7,8 @@ package gql4s
 import cats.data.NonEmptyList
 import munit.FunSuite
 
+// TODO: A lot of these tests for test for the existence of Left or Right. We should change them
+//       to check for actual error types e.g. Left(List(DuplicateFragmentDefinition...))
 class ValidationSuite extends FunSuite:
   test("operation names must be unique") {
     // Operation names must be unique
@@ -234,6 +236,51 @@ class ValidationSuite extends FunSuite:
     executableDocument.parse(doc4) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
       case _               => fail("failed to parse doc4")
+  }
+
+  test("fragments") {
+    val doc1 = """
+      {
+        dog {
+          ...fragmentOne
+          ...fragmentTwo
+        }
+      }
+
+      fragment fragmentOne on Dog {
+        name
+      }
+
+      fragment fragmentTwo on Dog {
+        owner {
+          name
+        }
+      }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+    {
+      dog {
+        ...fragmentOne
+      }
+    }
+
+    fragment fragmentOne on Dog {
+      name
+    }
+
+    fragment fragmentOne on Dog {
+      owner {
+        name
+      }
+    }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc2")
   }
 
 end ValidationSuite

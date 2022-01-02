@@ -16,6 +16,7 @@ enum GqlError:
   case MissingArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
+  case DuplicateFragmentDefinition(fragName: Name)
   case SubscriptionHasMultipleRoots
   case NameNotUnique
   case AnonymousQueryNotAlone
