@@ -28,7 +28,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1Str) match {
-      case Right(_ -> doc) => assert(operationNameUniqueness(doc).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc1")
     }
 
@@ -47,7 +47,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2Str) match
-      case Right(_ -> doc) => assert(operationNameUniqueness(doc).isLeft)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isLeft)
       case _               => fail("failed to parse doc2")
   }
 
@@ -61,7 +61,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(loneAnonOperation(doc).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -80,7 +80,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(loneAnonOperation(doc).isLeft)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isLeft)
       case _               => fail("failed to parse doc2")
   }
 
@@ -94,7 +94,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isRight)
+      case Right(_ -> doc) => assert(clue(subscriptionsHaveSingleRoot(doc)).isEmpty)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -110,7 +110,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isRight)
+      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).isEmpty)
       case _               => fail("failed to parse doc2")
 
     val doc3 = """
@@ -123,7 +123,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc3) match
-      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isLeft)
+      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).length > 0)
       case _               => fail("failed to parse doc3")
 
     val doc4 = """
@@ -140,7 +140,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc4) match
-      case Right(_ -> doc) => assert(subscriptionSingleRoot(doc).isLeft)
+      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).length > 0)
       case _               => fail("failed to parse doc4")
   }
 

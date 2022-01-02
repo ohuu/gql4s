@@ -104,37 +104,22 @@ end findOperationTypeDef
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Validators
 
-// 5.2.1.1 (10-2021)
-def operationNameUniqueness(doc: ExecutableDocument): Either[GqlError, ExecutableDocument] =
-  val ops       = doc.collect { case x: OperationDefinition => x }
-  val uniqueOps = ops.distinctBy(_.name)
-  if uniqueOps.length == ops.length then doc.asRight else NameNotUnique.asLeft
-
-// 5.2.2.1 (10-2021)
-def loneAnonOperation(doc: ExecutableDocument): Either[GqlError, ExecutableDocument] =
-  val ops      = doc.collect { case x: OperationDefinition => x }
-  val namedOps = ops.filter(_.name.isDefined)
-  val anonOps  = ops.filter(_.name.isEmpty)
-
-  if anonOps.isEmpty then doc.asRight
-  else if anonOps.length == 1 && namedOps.isEmpty then doc.asRight
-  else AnonymousQueryNotAlone.asLeft
-
 // 5.2.3.1 (10-2021)
 // Checks to see if the used fragment has a single root
-private def hasSingleRoot(
-    frag: InlineFragment | FragmentSpread,
-    fragDefs: List[FragmentDefinition]
-): Boolean =
-  frag match
-    case InlineFragment(_, _, selects) => selects.length == 1
-    case FragmentSpread(name, _) =>
-      fragDefs.find(_.name.get == name) match
-        case None       => false
-        case Some(frag) => frag.selectionSet.length == 1
-
 // TODO: need to stop introspection fields in subscription's root
-def subscriptionSingleRoot(doc: ExecutableDocument): Either[GqlError, ExecutableDocument] =
+def subscriptionsHaveSingleRoot(doc: ExecutableDocument): List[GqlError] =
+  def hasSingleRoot(
+      frag: InlineFragment | FragmentSpread,
+      fragDefs: List[FragmentDefinition]
+  ): Boolean =
+    frag match
+      case InlineFragment(_, _, selects) => selects.length == 1
+      case FragmentSpread(name, _) =>
+        fragDefs.find(_.name.get == name) match
+          case None       => false
+          case Some(frag) => frag.selectionSet.length == 1
+  end hasSingleRoot
+
   val ops   = doc.collect { case x: OperationDefinition => x }
   val frags = doc.collect { case x: FragmentDefinition => x }
   val subs  = ops.filter(_.operationType == Subscription)
@@ -147,9 +132,9 @@ def subscriptionSingleRoot(doc: ExecutableDocument): Either[GqlError, Executable
   }
 
   multipleRoots match
-    case Some(_) => SubscriptionHasMultipleRoots.asLeft
-    case None    => doc.asRight
-end subscriptionSingleRoot
+    case Some(opDef) => SubscriptionHasMultipleRoots(opDef.name) :: Nil
+    case None        => Nil
+end subscriptionsHaveSingleRoot
 
 /** Performs various validation steps on the selection sets. Bear in mind that this function will
   * not validate fragment definitions but will validate inline fragment definitions, you must call
@@ -254,7 +239,6 @@ private def validateSelectionSet(
   recurse(selectionSet.map(namedType -> _))
 end validateSelectionSet
 
-/** */
 private def validateOperationDefinition(
     opDef: OperationDefinition,
     schema: TypeSystemDocument
@@ -267,30 +251,70 @@ private def validateOperationDefinition(
 private def validateFragmentDefinition(
     fragDef: FragmentDefinition,
     schema: TypeSystemDocument
-): List[GqlError] = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, schema)
+): List[GqlError] =
+  val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, schema)
 
-def validate(
-    doc: ExecutableDocument,
+  // 5.5.1.2 Fragment types should exist.
+  // TODO: Implement this!
+  // TODO: Spec contains error - formal spec explicitly mentions named spreads which implies
+  //       inlined fragments are not covered by this validation rule, but they clearly are!
+  val typeErrs = Nil
+
+  selectionErrs ::: typeErrs
+
+private def validateOperationDefinitions(
+    opDefs: List[OperationDefinition],
     schema: TypeSystemDocument
-): Either[NonEmptyList[GqlError], ExecutableDocument] =
+): List[GqlError] =
+  // 5.2.1.1 unique operation names
+  val uniquenessErrs = opDefs
+    .groupBy(_.name)
+    .filter { case name -> xs => name.isDefined && xs.length > 1 }
+    .map { case name -> _ => DuplicateOperationDefinition(name.get) }
+    .toList
+
+  // 5.2.2.1 Lone anonymous operation
+  val namedOps = opDefs.filter(_.name.isDefined)
+  val anonOps  = opDefs.filter(_.name.isEmpty)
+  val loneAnonErrs =
+    if anonOps.length > 1 then MultipleAnonymousQueries :: Nil
+    else if anonOps.length == 1 && !namedOps.isEmpty then AnonymousQueryNotAlone :: Nil
+    else Nil
+
+  val errs = opDefs.flatMap(validateOperationDefinition(_, schema))
+
+  uniquenessErrs ::: loneAnonErrs ::: errs
+end validateOperationDefinitions
+
+private def validateFragmentDefinitions(
+    fragDefs: List[FragmentDefinition],
+    schema: TypeSystemDocument
+): List[GqlError] =
   // 5.5.1.1 fragment definition unique name
-  val dupFragErrors = doc
-    .collect { case o: FragmentDefinition => o }
+  val uniquenessErrs = fragDefs
     .groupBy(_.name)
     .filter { case _ -> xs => xs.length > 1 }
     .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
     .toList
 
-  val validationErrors = doc
-    .map {
-      case o: OperationDefinition => validateOperationDefinition(o, schema)
-      case o: FragmentDefinition  => validateFragmentDefinition(o, schema)
-    }
-    .reduce(_ ::: _)
+  val errs = fragDefs.flatMap(validateFragmentDefinition(_, schema))
 
-  val accErrors = dupFragErrors ::: validationErrors
+  uniquenessErrs ::: errs
+end validateFragmentDefinitions
 
-  accErrors match
+def validate(
+    doc: ExecutableDocument,
+    schema: TypeSystemDocument
+): Either[NonEmptyList[GqlError], ExecutableDocument] =
+  val fragmentDefs = doc.collect { case o: FragmentDefinition => o }
+  val fragmentErrs = validateFragmentDefinitions(fragmentDefs, schema)
+
+  val operationDefs = doc.collect { case o: OperationDefinition => o }
+  val operationErrs = validateOperationDefinitions(operationDefs, schema)
+
+  val subscriptionErrs = subscriptionsHaveSingleRoot(doc)
+
+  fragmentErrs ::: operationErrs ::: subscriptionErrs match
     case Nil  => doc.asRight
     case errs => NonEmptyList.fromListUnsafe(errs).asLeft
 end validate

@@ -17,6 +17,7 @@ enum GqlError:
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case DuplicateFragmentDefinition(fragName: Name)
-  case SubscriptionHasMultipleRoots
-  case NameNotUnique
+  case DuplicateOperationDefinition(opName: Name)
+  case MultipleAnonymousQueries
   case AnonymousQueryNotAlone
+  case SubscriptionHasMultipleRoots(subName: Option[Name])
