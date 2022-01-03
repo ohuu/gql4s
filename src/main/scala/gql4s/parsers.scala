@@ -33,11 +33,11 @@ val unicodeBom = char('\uFEFF')
 val lineTerminator = crlf | cr | lf
 
 // Comment
-val commentChar = (sourceCharacter ~ !lineTerminator).void
+val commentChar = ((!lineTerminator).with1 ~ sourceCharacter).void
 val comment     = (char('#') ~ commentChar.rep0).void
 
 // Ignore
-val __ = (unicodeBom | wsp | lineTerminator | comment | char(',')).rep0.void
+val __ = (comment | unicodeBom | wsp | lineTerminator | char(',')).rep0.void
 
 // // Name
 val namePart = ((char('_') | alpha) ~ (char('_') | alpha | digit).rep0).string
@@ -146,7 +146,7 @@ val directives0 = (directive <* __).rep0
 // Selection Set
 val selection: P[Selection] =
   defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
-val selectionSet  = (char('{') ~ __ *> (selection <* __).rep <* char('}'))
+val selectionSet  = (char('{') ~ __) *> (selection <* __).rep <* char('}')
 val selectionSet0 = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Fragments

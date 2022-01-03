@@ -194,6 +194,17 @@ class QueryParserSuite extends FunSuite:
       List(Field(None, Name("name"), Nil, Nil, Nil))
     )
 
+    val field3 = """user(id:4) { # this comment used to cause problems
+        name
+      }"""
+    val field3Res = Field(
+      None,
+      Name("user"),
+      List(Argument(Name("id"), IntValue(4))),
+      Nil,
+      List(Field(None, Name("name"), Nil, Nil, Nil))
+    )
+
     // TODO: test field with directives
 
     val fragmentDefinition0 = """fragment friendFields on User {
@@ -245,6 +256,7 @@ class QueryParserSuite extends FunSuite:
     assert(clue(field.parse(field0)) == Right("", field0Res))
     assert(clue(field.parse(field1)) == Right("", field1Res))
     assert(clue(field.parse(field2)) == Right("", field2Res))
+    assert(clue(field.parse(field3)) == Right("", field3Res))
     assert(clue(fragmentDefinition.parse(fragmentDefinition0)) == Right("", fragmentDefinition0Res))
     assert(clue(fragmentDefinition.parse(fragment1Definition)) == Right("", fragment1DefinitionRes))
   }
