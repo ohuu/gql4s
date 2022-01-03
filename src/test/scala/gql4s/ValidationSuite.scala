@@ -94,7 +94,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(subscriptionsHaveSingleRoot(doc)).isEmpty)
+      case Right(_ -> doc) => assert(clue(validateSubscriptionsHaveSingleRoot(doc)).isEmpty)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -110,7 +110,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).isEmpty)
+      case Right(_ -> doc) => assert(validateSubscriptionsHaveSingleRoot(doc).isEmpty)
       case _               => fail("failed to parse doc2")
 
     val doc3 = """
@@ -123,7 +123,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc3) match
-      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).length > 0)
+      case Right(_ -> doc) => assert(validateSubscriptionsHaveSingleRoot(doc).length > 0)
       case _               => fail("failed to parse doc3")
 
     val doc4 = """
@@ -140,7 +140,7 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc4) match
-      case Right(_ -> doc) => assert(subscriptionsHaveSingleRoot(doc).length > 0)
+      case Right(_ -> doc) => assert(validateSubscriptionsHaveSingleRoot(doc).length > 0)
       case _               => fail("failed to parse doc4")
   }
 
@@ -238,7 +238,7 @@ class ValidationSuite extends FunSuite:
       case _               => fail("failed to parse doc4")
   }
 
-  test("fragments") {
+  test("fragment definitions should not be duplicated") {
     val doc1 = """
       {
         dog {
@@ -281,6 +281,44 @@ class ValidationSuite extends FunSuite:
     executableDocument.parse(doc2) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
       case _               => fail("failed to parse doc2")
+  }
+
+  test("fragments should reference object like types that exist") {
+    val doc1 = """
+    fragment correctType on Dog {
+      name
+    }
+
+    fragment inlineFragment on Dog {
+      ... on Dog {
+        name
+      }
+    }
+
+    fragment inlineFragment2 on Dog {
+      ... @include(if: true) {
+        name
+      }
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+    fragment notOnExistingType on NotInSchema {
+      name
+    }
+
+    fragment inlineNotExistingType on Dog {
+      ... on NotInSchema {
+        name
+      }
+    }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case _               => fail("failed to parse doc1")
   }
 
 end ValidationSuite

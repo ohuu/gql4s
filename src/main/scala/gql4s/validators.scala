@@ -104,10 +104,10 @@ end findOperationTypeDef
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Validators
 
-// 5.2.3.1 (10-2021)
-// Checks to see if the used fragment has a single root
+/**   - 5.2.3.1 Checks to see if the used fragment has a single root
+  */
 // TODO: need to stop introspection fields in subscription's root
-def subscriptionsHaveSingleRoot(doc: ExecutableDocument): List[GqlError] =
+def validateSubscriptionsHaveSingleRoot(doc: ExecutableDocument): List[GqlError] =
   def hasSingleRoot(
       frag: InlineFragment | FragmentSpread,
       fragDefs: List[FragmentDefinition]
@@ -134,7 +134,21 @@ def subscriptionsHaveSingleRoot(doc: ExecutableDocument): List[GqlError] =
   multipleRoots match
     case Some(opDef) => SubscriptionHasMultipleRoots(opDef.name) :: Nil
     case None        => Nil
-end subscriptionsHaveSingleRoot
+end validateSubscriptionsHaveSingleRoot
+
+/**   - 5.5.1.2 Fragment types should exist.
+  *   - 5.5.1.3 Fragments must reference either Union, Interface or Object types.
+  */
+// TODO: Spec contains error - formal spec explicitly mentions named spreads which implies
+//       inlined fragments are not covered by this validation rule, but they clearly are!
+def validateObjectLikeTypeDefExists(
+    namedType: NamedType,
+    schema: TypeSystemDocument
+): List[GqlError] =
+  findTypeDef(namedType, schema) match
+    case Some(_: ObjectTypeDefinition | _: InterfaceTypeDefinition | _: UnionTypeDefinition) => Nil
+    case Some(typeDef) => IllegalType(NamedType(typeDef.name)) :: Nil
+    case None          => MissingTypeDefinition(namedType) :: Nil
 
 /** Performs various validation steps on the selection sets. Bear in mind that this function will
   * not validate fragment definitions but will validate inline fragment definitions, you must call
@@ -223,14 +237,17 @@ private def validateSelectionSet(
                       recurse(typeAndSelection ::: tail, accErrors)
 
           case InlineFragment(Some(namedType), _, fragSelectionSet) =>
+            val typeErrs = validateObjectLikeTypeDefExists(namedType, schema)
+
             val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
-            recurse(typeAndSelection ::: tail, acc)
+            recurse(typeAndSelection ::: tail, typeErrs ::: acc)
 
           // Type name has been omitted so this inline fragment has the same type as enclosing
           // context (e.g. the current namedType)
           case InlineFragment(None, _, fragSelectionSet) =>
+            val typeErrs         = validateObjectLikeTypeDefExists(namedType, schema)
             val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
-            recurse(typeAndSelection ::: tail, acc)
+            recurse(typeAndSelection ::: tail, typeErrs ::: acc)
 
           // We have already validated fragment spreads by this stage so ignore, don't recurse
           case _: FragmentSpread => acc
@@ -253,14 +270,10 @@ private def validateFragmentDefinition(
     schema: TypeSystemDocument
 ): List[GqlError] =
   val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, schema)
-
-  // 5.5.1.2 Fragment types should exist.
-  // TODO: Implement this!
-  // TODO: Spec contains error - formal spec explicitly mentions named spreads which implies
-  //       inlined fragments are not covered by this validation rule, but they clearly are!
-  val typeErrs = Nil
+  val typeErrs      = validateObjectLikeTypeDefExists(fragDef.on, schema)
 
   selectionErrs ::: typeErrs
+end validateFragmentDefinition
 
 private def validateOperationDefinitions(
     opDefs: List[OperationDefinition],
@@ -312,7 +325,7 @@ def validate(
   val operationDefs = doc.collect { case o: OperationDefinition => o }
   val operationErrs = validateOperationDefinitions(operationDefs, schema)
 
-  val subscriptionErrs = subscriptionsHaveSingleRoot(doc)
+  val subscriptionErrs = validateSubscriptionsHaveSingleRoot(doc)
 
   fragmentErrs ::: operationErrs ::: subscriptionErrs match
     case Nil  => doc.asRight
