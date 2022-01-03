@@ -22,3 +22,4 @@ enum GqlError:
   case MultipleAnonymousQueries
   case AnonymousQueryNotAlone
   case SubscriptionHasMultipleRoots(subName: Option[Name])
+  case UnusedFragment(fragName: Name)

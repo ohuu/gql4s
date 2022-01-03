@@ -179,6 +179,10 @@ class ValidationSuite extends FunSuite:
     fragment scalarSelection on Dog {
       barkVolume
     }
+    
+    {
+      ...scalarSelection
+    }
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
@@ -204,6 +208,13 @@ class ValidationSuite extends FunSuite:
 
     fragment argOnOptional on Dog {
       isHouseTrained(atOtherHomes: true) @include(if: true)
+    }
+
+    {
+      dog {
+        ...argOnRequiredArg
+        ...argOnOptional
+      }
     }
     """
     executableDocument.parse(doc1) match
@@ -300,6 +311,18 @@ class ValidationSuite extends FunSuite:
         name
       }
     }
+
+    {
+      dog {
+        ...correctType
+      }
+      dog {
+        ...inlineFragment
+      }
+      dog {
+        ...inlineFragment2
+      }
+    }
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
@@ -317,7 +340,24 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
+      case _               => fail("failed to parse doc1")
+  }
+
+  test("fragments must be used") {
+    val doc1 = """
+    fragment nameFragment on Dog { # unused
+      name
+    }
+
+    {
+      dog {
+        name
+      }
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
       case _               => fail("failed to parse doc1")
   }
 

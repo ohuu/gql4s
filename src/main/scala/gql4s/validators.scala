@@ -101,6 +101,32 @@ private def findOperationTypeDef(
         case Subscription => findObjTypeDef(NamedType(Name("Subscription")), schema)
 end findOperationTypeDef
 
+/** Finds unique uses of fragment spreads.
+  *
+  * @return
+  *   A list of fragment spreads which are used in the given document. No duplicates will exist in
+  *   the list.
+  */
+private def findFragmentSpreads(doc: ExecutableDocument): List[FragmentSpread] =
+  @tailrec
+  def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
+    accSelectionSet match
+      case Nil => acc
+      case head :: tail =>
+        head match
+          case Field(_, _, _, _, selectionSet)    => recurse(selectionSet ::: tail, acc)
+          case InlineFragment(_, _, selectionSet) => recurse(selectionSet.toList ::: tail, acc)
+          case spread: FragmentSpread =>
+            val acc2 = if acc.contains(spread) then acc else spread :: acc
+            recurse(tail, acc2)
+  end recurse
+
+  doc
+    .collect { case o: OperationDefinition => o }
+    .map(_.selectionSet.toList)
+    .flatMap(recurse(_, Nil))
+end findFragmentSpreads
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Validators
 
@@ -276,9 +302,11 @@ private def validateFragmentDefinition(
 end validateFragmentDefinition
 
 private def validateOperationDefinitions(
-    opDefs: List[OperationDefinition],
+    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
+  val opDefs = doc.collect { case o: OperationDefinition => o }
+
   // 5.2.1.1 unique operation names
   val uniquenessErrs = opDefs
     .groupBy(_.name)
@@ -300,9 +328,11 @@ private def validateOperationDefinitions(
 end validateOperationDefinitions
 
 private def validateFragmentDefinitions(
-    fragDefs: List[FragmentDefinition],
+    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
+  val fragDefs = doc.collect { case o: FragmentDefinition => o }
+
   // 5.5.1.1 fragment definition unique name
   val uniquenessErrs = fragDefs
     .groupBy(_.name)
@@ -310,21 +340,24 @@ private def validateFragmentDefinitions(
     .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
     .toList
 
+  // 5.5.1.4 Fragment definitions must be used
+  val fragDefNames = fragDefs.map(_.name.get)
+  val fragSpreads  = findFragmentSpreads(doc).map(_.name)
+  val unusedErrs = fragDefNames
+    .filterNot(fragSpreads.contains)
+    .map(UnusedFragment(_))
+
   val errs = fragDefs.flatMap(validateFragmentDefinition(_, schema))
 
-  uniquenessErrs ::: errs
+  uniquenessErrs ::: unusedErrs ::: errs
 end validateFragmentDefinitions
 
 def validate(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): Either[NonEmptyList[GqlError], ExecutableDocument] =
-  val fragmentDefs = doc.collect { case o: FragmentDefinition => o }
-  val fragmentErrs = validateFragmentDefinitions(fragmentDefs, schema)
-
-  val operationDefs = doc.collect { case o: OperationDefinition => o }
-  val operationErrs = validateOperationDefinitions(operationDefs, schema)
-
+  val fragmentErrs     = validateFragmentDefinitions(doc, schema)
+  val operationErrs    = validateOperationDefinitions(doc, schema)
   val subscriptionErrs = validateSubscriptionsHaveSingleRoot(doc)
 
   fragmentErrs ::: operationErrs ::: subscriptionErrs match
