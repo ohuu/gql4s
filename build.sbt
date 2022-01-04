@@ -1,9 +1,12 @@
 val scala3Version = "3.1.0"
 
+lazy val catsParseVersion = "0.3.6"
+lazy val munitVersion     = "0.7.29"
+
 lazy val root = project
   .in(file("."))
   .settings(
-    name         := "gql",
+    name         := "gql4s",
     version      := "0.1.0-SNAPSHOT",
     scalaVersion := scala3Version,
     scalacOptions ++= Seq(
@@ -18,8 +21,8 @@ lazy val root = project
       "-new-syntax"     // Require `then` and `do` in control expressions.
     ),
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-parse" % "0.3.5",
-      "org.scalameta" %% "munit"      % "0.7.29" % Test
+      "org.typelevel" %% "cats-parse" % catsParseVersion,
+      "org.scalameta" %% "munit"      % munitVersion % Test
     ),
     testFrameworks += new TestFramework("munit.Framework"),
     Test / parallelExecution := false
