@@ -7,8 +7,9 @@ package gql4s
 import cats.data.NonEmptyList
 import munit.FunSuite
 
-// TODO: A lot of these tests for test for the existence of Left or Right. We should change them
-//       to check for actual error types e.g. Left(List(DuplicateFragmentDefinition...))
+import GqlError.*
+import Type.*
+
 class ValidationSuite extends FunSuite:
   test("operation names must be unique") {
     // Operation names must be unique
@@ -46,9 +47,18 @@ class ValidationSuite extends FunSuite:
         }
       }
     """
+    val poop = executableDocument
+      .parse(doc2Str)
+      .map { case _ -> doc => doc }
+      .flatMap(validate(_, schemaDoc))
+
     executableDocument.parse(doc2Str) match
-      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isLeft)
-      case _               => fail("failed to parse doc2")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateOperationDefinition])
+        val expectedErr = DuplicateOperationDefinition(Name("dogOperation"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc2")
   }
 
   test("anonymous operations must be singular") {
@@ -80,8 +90,12 @@ class ValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isLeft)
-      case _               => fail("failed to parse doc2")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[AnonymousQueryNotAlone.type])
+        val expectedErr = AnonymousQueryNotAlone
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc2")
   }
 
   test("subscriptions should have a single root") {
@@ -196,8 +210,12 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc2")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[IllegalSelection])
+        val expectedErr = IllegalSelection(Name("barkVolume"), NamedType(Name("Dog")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc2")
   }
 
   test("arguments") {
@@ -227,8 +245,17 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc2")
+      case Right(_ -> doc) =>
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr = errs.find(_.isInstanceOf[MissingArgumentDefinition])
+        val expectedErr =
+          MissingArgumentDefinition(
+            Name("command"),
+            Name("doesKnowCommand"),
+            NamedType(Name("Dog"))
+          )
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc2")
 
     val doc3 = """
     fragment argOnRequiredArg on Dog {
@@ -236,8 +263,17 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc3) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc3")
+      case Right(_ -> doc) =>
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr = errs.find(_.isInstanceOf[DuplicateArgument])
+        val expectedErr =
+          DuplicateArgument(
+            Name("dogCommand"),
+            Name("doesKnowCommand"),
+            NamedType(Name("Dog"))
+          )
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc3")
 
     val doc4 = """
     query MyQuery {
@@ -245,8 +281,17 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc4) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc4")
+      case Right(_ -> doc) =>
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr = errs.find(_.isInstanceOf[MissingArgument])
+        val expectedErr =
+          MissingArgument(
+            Name("y"),
+            Name("multipleRequirements"),
+            NamedType(Name("Query"))
+          )
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc4")
   }
 
   test("fragment definitions should not be duplicated") {
@@ -290,8 +335,12 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc2")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateFragmentDefinition])
+        val expectedErr = DuplicateFragmentDefinition(Name("fragmentOne"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc2")
   }
 
   test("fragments should reference object like types that exist") {
@@ -340,8 +389,12 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc1")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[MissingTypeDefinition])
+        val expectedErr = MissingTypeDefinition(NamedType(Name("NotInSchema")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc1")
   }
 
   test("fragments must be used") {
@@ -357,8 +410,12 @@ class ValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isLeft)
-      case _               => fail("failed to parse doc1")
+      case Right(_ -> doc) =>
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actualErr   = errs.find(_.isInstanceOf[UnusedFragment])
+        val expectedErr = UnusedFragment(Name("nameFragment"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse doc1")
   }
 
 end ValidationSuite
