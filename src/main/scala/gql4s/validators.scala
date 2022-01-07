@@ -192,6 +192,7 @@ def validateObjectLikeTypeDefExists(
 private def validateSelectionSet(
     selectionSet: List[Selection],
     namedType: NamedType,
+    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   @tailrec
@@ -275,8 +276,15 @@ private def validateSelectionSet(
             val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
             recurse(typeAndSelection ::: tail, typeErrs ::: acc)
 
-          // We have already validated fragment spreads by this stage so ignore, don't recurse
-          case _: FragmentSpread => acc
+          // We have already validated the selection sets for fragment definitions by this point
+          // so there's no need to recurse into the selection set for this fragment spreads.
+          case FragmentSpread(name, _) =>
+            // 5.5.2.1 Fragment definition must exist
+            val fragDefExists =
+              doc.collect { case o: FragmentDefinition => o }.exists(_.name.get == name)
+
+            if fragDefExists then acc
+            else MissingFragmentDefinition(name) :: acc
   end recurse
 
   recurse(selectionSet.map(namedType -> _))
@@ -284,18 +292,20 @@ end validateSelectionSet
 
 private def validateOperationDefinition(
     opDef: OperationDefinition,
+    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
-      validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), schema)
+      validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
 
 private def validateFragmentDefinition(
     fragDef: FragmentDefinition,
+    doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
-  val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, schema)
+  val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, doc, schema)
   val typeErrs      = validateObjectLikeTypeDefExists(fragDef.on, schema)
 
   selectionErrs ::: typeErrs
@@ -322,7 +332,7 @@ private def validateOperationDefinitions(
     else if anonOps.length == 1 && !namedOps.isEmpty then AnonymousQueryNotAlone :: Nil
     else Nil
 
-  val errs = opDefs.flatMap(validateOperationDefinition(_, schema))
+  val errs = opDefs.flatMap(validateOperationDefinition(_, doc, schema))
 
   uniquenessErrs ::: loneAnonErrs ::: errs
 end validateOperationDefinitions
@@ -347,7 +357,7 @@ private def validateFragmentDefinitions(
     .filterNot(fragSpreads.contains)
     .map(UnusedFragment(_))
 
-  val errs = fragDefs.flatMap(validateFragmentDefinition(_, schema))
+  val errs = fragDefs.flatMap(validateFragmentDefinition(_, doc, schema))
 
   uniquenessErrs ::: unusedErrs ::: errs
 end validateFragmentDefinitions

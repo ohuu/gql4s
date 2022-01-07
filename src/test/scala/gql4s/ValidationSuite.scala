@@ -418,4 +418,21 @@ class ValidationSuite extends FunSuite:
       case _ => fail("failed to parse doc1")
   }
 
+  test("fragment spread must refer to a fragment definition that exists") {
+    val doc = """
+    {
+      dog {
+        ...undefinedFragment
+      }
+    }
+    """
+    executableDocument.parse(doc) match
+      case Right(_ -> doc) =>
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.find(_.isInstanceOf[MissingFragmentDefinition])
+        val expected = MissingFragmentDefinition(Name("undefinedFragment"))
+        assertEquals(clue(actual), clue(Some(expected)))
+      case _ => fail("failed to parse doc")
+  }
+
 end ValidationSuite
