@@ -21,7 +21,7 @@ import Type.*
 //           place like a Symbol Table
 
 private def findFragDef(fragName: Name, doc: ExecutableDocument): Option[FragmentDefinition] =
-  doc.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
+  doc.collect { case f: FragmentDefinition => f }.find(_.name.get == fragName)
 
 private def findObjTypeDef(
     namedType: NamedType,
@@ -182,32 +182,42 @@ def validateObjectLikeTypeDefExists(
   *
   * @param selectionSet
   *   The selectionSet to recursively validate.
-  * @param namedType
+  * @param fragDef
+  *   If this selection set is on a fragment definition then this must contain that fragment def.
+  * @param parentType
   *   The name of the type that the selectionSet is within.
   * @param schema
   *   The graphql schema.
   * @return
   *   Return a list of errors or Nil if there weren't any.
   */
+// TODO: This function is WAY too complicated! It needs to be broken down and documented better.
+//       I really don't like the added complication of checking for cycles within fragment
+//       definitions, it's why fragDef is passed to it and why accFragDefs is passed to the
+//       recurse function. It feels as though cycle validation should be factored out into a
+//       separate function but it's not easy to do that without repeating code but maybe that's
+//       the lesser of two evils?
 private def validateSelectionSet(
     selectionSet: List[Selection],
-    namedType: NamedType,
+    fragDef: Option[FragmentDefinition],
+    parentType: NamedType,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
   @tailrec
   def recurse(
       accSelectionSet: List[(NamedType, Selection)],
-      acc: List[GqlError] = Nil
+      accFragDefs: List[Name],
+      accErrs: List[GqlError] = Nil
   ): List[GqlError] =
     accSelectionSet match
-      case Nil => acc
-      case (namedType, selection) :: tail =>
+      case Nil => accErrs
+      case (parentType, selection) :: tail =>
         selection match
-          case Field(_, fieldName, arguments, _, fieldSelectionSet) =>
-            // 5.3.1
-            findFieldDef(fieldName, namedType, schema) match
-              case None           => MissingField(fieldName, Some(namedType)) :: acc
+          case Field(_, fieldName, arguments, _, selectionSet) =>
+            // 5.3.1 field selections must exist on object, interface and union types
+            findFieldDef(fieldName, parentType, schema) match
+              case None           => MissingField(fieldName, Some(parentType)) :: accErrs
               case Some(fieldDef) =>
                 // 5.4.1 args exist
                 // TODO: Include directives in this
@@ -216,78 +226,103 @@ private def validateSelectionSet(
                     .flatMap { arg =>
                       fieldDef.arguments.find(_.name == arg.name) match
                         case None =>
-                          MissingArgumentDefinition(arg.name, fieldName, namedType) :: Nil
+                          MissingArgumentDefinition(arg.name, fieldName, parentType) :: Nil
                         case _ => Nil
                     }
 
                 // 5.4.2 args are unique
                 // TODO: Include directives in this
-                val argUniquenessErrors = arguments
-                  .groupBy(_.name)
-                  .filter { case (argName, args) => args.size > 1 }
-                  .map { case (argName, _) => DuplicateArgument(argName, fieldName, namedType) }
-                  .toList
+                val argUniquenessErrors =
+                  arguments
+                    .groupBy(_.name)
+                    .filter { case (argName, args) => args.size > 1 }
+                    .map { case (argName, _) => DuplicateArgument(argName, fieldName, parentType) }
+                    .toList
 
                 // 5.4.2.1 required args
                 // TODO: Include directives in this
-                val requiredArgs = fieldDef.arguments
-                  .filter {
-                    case InputValueDefinition(_, _: NonNullType, None, _) => true
-                    case _                                                => false
-                  }
-                  .map(_.name)
+                val requiredArgs =
+                  fieldDef.arguments
+                    .filter {
+                      case InputValueDefinition(_, _: NonNullType, None, _) => true
+                      case _                                                => false
+                    }
+                    .map(_.name)
                 val requiredArgErrors = requiredArgs
                   .filter(argName => arguments.find(_.name == argName).isEmpty)
-                  .map(argName => MissingArgument(argName, fieldName, namedType))
+                  .map(argName => MissingArgument(argName, fieldName, parentType))
 
-                val accErrors =
-                  argExistenceErrors ::: argUniquenessErrors ::: requiredArgErrors ::: acc
+                val errors =
+                  argExistenceErrors ::: argUniquenessErrors ::: requiredArgErrors ::: accErrs
 
                 val fieldNamedType: NamedType = NamedType(fieldDef.tpe.name)
 
                 findTypeDef(fieldNamedType, schema) match
-                  case None => MissingTypeDefinition(fieldNamedType) :: accErrors
+                  case None =>
+                    recurse(tail, accFragDefs, MissingTypeDefinition(fieldNamedType) :: errors)
 
-                  // We found it but it's a leaf type so we can't recurse
+                  // We found it but it's a leaf type so we can't recurse into its children,
+                  // instead just carry on with the parent types other selections (tail)
                   case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) =>
                     // 5.3.3
-                    if fieldSelectionSet.isEmpty then accErrors
-                    else IllegalSelection(fieldName, namedType) :: accErrors
+                    if selectionSet.isEmpty then recurse(tail, accFragDefs, errors)
+                    else
+                      recurse(tail, accFragDefs, IllegalSelection(fieldName, parentType) :: errors)
 
                   // We found an object type so we need to recurse
                   case Some(typeDef) =>
-                    // 5.3.3
-                    if fieldSelectionSet.isEmpty then
-                      MissingSelection(fieldName, namedType) :: accErrors
+                    // 5.3.3 leaf field selection validation
+                    if selectionSet.isEmpty then MissingSelection(fieldName, parentType) :: errors
                     else
-                      val typeAndSelection = fieldSelectionSet.map(NamedType(typeDef.name) -> _)
-                      recurse(typeAndSelection ::: tail, accErrors)
+                      val typeAndSelection = selectionSet.map(NamedType(typeDef.name) -> _)
+                      recurse(typeAndSelection ::: tail, accFragDefs, errors)
 
-          case InlineFragment(Some(namedType), _, fragSelectionSet) =>
-            val typeErrs = validateObjectLikeTypeDefExists(namedType, schema)
-
-            val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
-            recurse(typeAndSelection ::: tail, typeErrs ::: acc)
+          case InlineFragment(Some(onType), _, selectionSet) =>
+            val typeErrs         = validateObjectLikeTypeDefExists(onType, schema)
+            val typeAndSelection = selectionSet.map(onType -> _).toList
+            recurse(typeAndSelection ::: tail, accFragDefs, typeErrs ::: accErrs)
 
           // Type name has been omitted so this inline fragment has the same type as enclosing
-          // context (e.g. the current namedType)
-          case InlineFragment(None, _, fragSelectionSet) =>
-            val typeErrs         = validateObjectLikeTypeDefExists(namedType, schema)
-            val typeAndSelection = fragSelectionSet.map(namedType -> _).toList
-            recurse(typeAndSelection ::: tail, typeErrs ::: acc)
+          // context (e.g. the current parentType)
+          case InlineFragment(None, _, selectionSet) =>
+            val typeErrs         = validateObjectLikeTypeDefExists(parentType, schema)
+            val typeAndSelection = selectionSet.map(parentType -> _).toList
+            recurse(typeAndSelection ::: tail, accFragDefs, typeErrs ::: accErrs)
 
-          // We have already validated the selection sets for fragment definitions by this point
-          // so there's no need to recurse into the selection set for this fragment spreads.
           case FragmentSpread(name, _) =>
             // 5.5.2.1 Fragment definition must exist
-            val fragDefExists =
-              doc.collect { case o: FragmentDefinition => o }.exists(_.name.get == name)
+            val fragDef       = findFragDef(name, doc)
+            val fragDefExists = fragDef.isDefined
 
-            if fragDefExists then acc
-            else MissingFragmentDefinition(name) :: acc
+            // If the accumulated fragment defs is not empty then we must be validating the selection
+            // set of a fragment definition and therefore need to recurse.
+            if accFragDefs.nonEmpty then
+              // 5.5.2.2 Fragment definitions must not contain cycles
+              val containsCycles = accFragDefs.contains(name)
+
+              if containsCycles then FragmentContainsCycles(name) :: accErrs
+              else
+                fragDef match
+                  case None =>
+                    recurse(tail, accFragDefs, MissingFragmentDefinition(name) :: accErrs)
+                  case Some(fragDef) =>
+                    recurse(
+                      (fragDef.selectionSet.toList.map(s =>
+                        fragDef.on -> s
+                      ) ::: accSelectionSet) ::: tail,
+                      name :: accFragDefs,
+                      accErrs
+                    )
+              end if
+
+            // There's no accumulated fragment defs so we must be within a operation selection set.
+            // We have already validated the selection sets for fragment definitions by this point
+            // so there's no need to recurse into the selection set for this fragment spread.
+            else if fragDefExists then recurse(tail, accFragDefs, accErrs)
+            else recurse(tail, accFragDefs, MissingFragmentDefinition(name) :: accErrs)
   end recurse
 
-  recurse(selectionSet.map(namedType -> _))
+  recurse(selectionSet.map(parentType -> _), fragDef.toList.map(_.name.get))
 end validateSelectionSet
 
 private def validateOperationDefinition(
@@ -298,15 +333,16 @@ private def validateOperationDefinition(
   findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
-      validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
+      validateSelectionSet(opDef.selectionSet.toList, None, NamedType(typeDef.name), doc, schema)
 
 private def validateFragmentDefinition(
     fragDef: FragmentDefinition,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
-  val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, doc, schema)
-  val typeErrs      = validateObjectLikeTypeDefExists(fragDef.on, schema)
+  val selectionErrs =
+    validateSelectionSet(fragDef.selectionSet.toList, Some(fragDef), fragDef.on, doc, schema)
+  val typeErrs = validateObjectLikeTypeDefExists(fragDef.on, schema)
 
   selectionErrs ::: typeErrs
 end validateFragmentDefinition
