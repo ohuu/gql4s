@@ -372,7 +372,8 @@ val enumTypeDefinitionB =
   ((name <* __) ~ (directives0 <* __) <* !char('{')).map { case name -> dirs =>
     EnumTypeDefinition(name, dirs, Nil)
   }
-val enumTypeDefinition = desc ~ enumStr *> enumTypeDefinitionA.backtrack | enumTypeDefinitionB
+val enumTypeDefinition =
+  (desc ~ enumStr *> (enumTypeDefinitionA.backtrack | enumTypeDefinitionB))
 
 val extendEnum = (extend ~ string("enum") ~ __).void
 val enumTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ enumValuesDefinition).map {
@@ -381,13 +382,13 @@ val enumTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ enumValuesDefinit
 val enumTypeExtensionB = ((name <* __) ~ (directives <* __) <* !char('{')).map {
   case name -> dirs => EnumTypeExtension(name, dirs.toList, Nil)
 }
-val enumTypeExtension = extendEnum *> enumTypeExtensionA.backtrack | enumTypeExtensionB
+val enumTypeExtension = desc ~ extendEnum *> enumTypeExtensionA.backtrack | enumTypeExtensionB
 
 // Input Objects
-val inputFieldsDefinition = char('{') ~ __ *> inputValueDefinition.rep <* char('}')
+val inputFieldsDefinition = char('{') ~ __ *> (inputValueDefinition <* __).rep <* char('}')
 // val inputFieldsDefinition0 = inputFieldsDefinition.?.map(_.map(_.toList).getOrElse(Nil))
 
-val input = (desc ~ string("input") ~ __).void
+val input = (string("input") ~ __).void
 val inputObjectTypeDefinitionA =
   ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map { case name -> dirs -> fields =>
     InputObjectTypeDefinition(name, dirs, fields.toList)
@@ -395,9 +396,10 @@ val inputObjectTypeDefinitionA =
 val inputObjectTypeDefinitionB = ((name <* __) ~ (directives0 <* __) <* !char('{')).map {
   case name -> dirs => InputObjectTypeDefinition(name, dirs, Nil)
 }
-val inputObjectTypeDefinition = input *> inputObjectTypeDefinitionA | inputObjectTypeDefinitionB
+val inputObjectTypeDefinition =
+  (desc ~ input *> (inputObjectTypeDefinitionA.backtrack | inputObjectTypeDefinitionB))
 
-val extendInput = (desc ~ extend ~ string("input") ~ __).void
+val extendInput = (extend ~ string("input") ~ __).void
 val inputObjectTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map {
   case name -> dirs -> fields => InputObjectTypeExtension(name, dirs, fields.toList)
 }
@@ -405,7 +407,7 @@ val inputObjectTypeExtensionB = ((name <* __) ~ (directives <* __) <* !char('{')
   case name -> dirs => InputObjectTypeExtension(name, dirs.toList, Nil)
 }
 val inputObjectTypeExtension =
-  extendInput *> inputObjectTypeExtensionA.backtrack | inputObjectTypeExtensionB
+  desc ~ extendInput *> inputObjectTypeExtensionA.backtrack | inputObjectTypeExtensionB
 
 // Directives
 val typeSystemDirectiveLocation =

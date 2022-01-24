@@ -12,6 +12,7 @@ val schemaStr = """
   type Query {
     dog: Dog
     multipleRequirements(x: Int!, y: Int!): Int!
+    findDog(complex: ComplexInput): Dog
   }
 
   enum DogCommand {
@@ -62,6 +63,16 @@ val schemaStr = """
   union CatOrDog = Cat | Dog
   union DogOrHuman = Dog | Human
   union HumanOrAlien = Human | Alien
+
+  input Name {
+    first: String
+    last: String
+  }
+  
+  input ComplexInput {
+    name: Name
+    owner: String
+  }
 """
 
 val schemaDoc = NonEmptyList.of(
@@ -78,6 +89,12 @@ val schemaDoc = NonEmptyList.of(
           InputValueDefinition(Name("y"), NonNullType(NamedType(Name("Int"))), None, Nil)
         ),
         NonNullType(NamedType(Name("Int"))),
+        Nil
+      ),
+      FieldDefinition(
+        Name("findDog"),
+        List(InputValueDefinition(Name("complex"), NamedType(Name("ComplexInput")), None, Nil)),
+        NamedType(Name("Dog")),
         Nil
       )
     )
@@ -196,5 +213,21 @@ val schemaDoc = NonEmptyList.of(
     Name("HumanOrAlien"),
     Nil,
     List(NamedType(Name("Human")), NamedType(Name("Alien")))
+  ),
+  InputObjectTypeDefinition(
+    Name("Name"),
+    Nil,
+    List(
+      InputValueDefinition(Name("first"), NamedType(Name("String")), None, Nil),
+      InputValueDefinition(Name("last"), NamedType(Name("String")), None, Nil)
+    )
+  ),
+  InputObjectTypeDefinition(
+    Name("ComplexInput"),
+    Nil,
+    List(
+      InputValueDefinition(Name("name"), NamedType(Name("Name")), None, Nil),
+      InputValueDefinition(Name("owner"), NamedType(Name("String")), None, Nil)
+    )
   )
 )

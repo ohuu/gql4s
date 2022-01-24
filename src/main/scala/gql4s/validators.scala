@@ -13,6 +13,7 @@ import GqlError.*
 import OperationType.*
 import Selection.*
 import Type.*
+import Value.*
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Helper Functions
@@ -28,6 +29,12 @@ private def findObjTypeDef(
     schema: TypeSystemDocument
 ): Option[ObjectTypeDefinition] =
   schema.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
+
+private def findInputObjTypeDef(
+    name: Name,
+    schema: TypeSystemDocument
+): Option[InputObjectTypeDefinition] =
+  schema.collect { case o: InputObjectTypeDefinition => o }.find(_.name == name)
 
 private def findTypeDef(namedType: NamedType, schema: TypeSystemDocument): Option[TypeDefinition] =
   namedType match
@@ -176,6 +183,103 @@ def validateObjectLikeTypeDefExists(
     case Some(typeDef) => IllegalType(NamedType(typeDef.name)) :: Nil
     case None          => MissingTypeDefinition(namedType) :: Nil
 
+/**   - 5.6.2
+  */
+def validateInputObjectValue(
+    inObjVal: ObjectValue,
+    inValDef: InputValueDefinition,
+    schema: TypeSystemDocument
+): List[GqlError] =
+  @tailrec
+  def recurse(
+      inObjs: List[(ObjectField, InputObjectTypeDefinition)],
+      accErrs: List[GqlError] = Nil
+  ): List[GqlError] =
+    inObjs match
+      case Nil => accErrs
+
+      case (ObjectField(name, value: ObjectValue), inObjTypeDef) :: tail =>
+        // 5.6.2 input object field exists
+        inObjTypeDef.fieldsDef.find(_.name == name) match
+          case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: accErrs)
+          case Some(inValDef) =>
+            findInputObjTypeDef(inValDef.tpe.name, schema) match
+              case None =>
+                recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: accErrs)
+              case Some(inObjTypeDef) =>
+                recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, accErrs)
+
+      case (ObjectField(name, value), inObjTypeDef) :: tail =>
+        // 5.6.2 input object field exists
+        inObjTypeDef.fieldsDef.find(_.name == name) match
+          case None    => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: accErrs)
+          case Some(_) => recurse(tail, accErrs)
+  end recurse
+
+  findInputObjTypeDef(inValDef.tpe.name, schema) match
+    case None               => List(MissingInputObjectTypeDefinition(inValDef.tpe.name))
+    case Some(inObjTypeDef) => recurse(inObjVal.fields.map(_ -> inObjTypeDef))
+end validateInputObjectValue
+
+/** Validate a fields arguments
+  * @param field
+  *   The field whos arguments we will validate.
+  * @param fieldDef
+  *   The definition of the field
+  * @param parentType
+  *   The type of the object containing the field
+  */
+def validateArguments(
+    field: Field,
+    fieldDef: FieldDefinition,
+    parentType: NamedType,
+    schema: TypeSystemDocument
+): List[GqlError] =
+  // TODO: Choose better name for this
+  val argErrors =
+    field.arguments
+      .flatMap {
+        case Argument(name, objVal: ObjectValue) =>
+          // 5.4.1 args exist
+          // TODO: Include directives in this
+          fieldDef.arguments.find(_.name == name) match
+            case None => MissingArgumentDefinition(name, field.name, parentType) :: Nil
+            case Some(inValDef) =>
+              validateInputObjectValue(objVal, inValDef, schema)
+
+        case Argument(name, _) =>
+          // 5.4.1 args exist
+          // TODO: Include directives in this
+          fieldDef.arguments.find(_.name == name) match
+            case None => MissingArgumentDefinition(name, field.name, parentType) :: Nil
+            case _    => Nil
+      }
+
+  // 5.4.2 args are unique
+  // TODO: Include directives in this
+  val argUniquenessErrors =
+    field.arguments
+      .groupBy(_.name)
+      .filter { case (argName, args) => args.size > 1 }
+      .map { case (argName, _) => DuplicateArgument(argName, field.name, parentType) }
+      .toList
+
+  // 5.4.2.1 required args
+  // TODO: Include directives in this
+  val requiredArgs =
+    fieldDef.arguments
+      .filter {
+        case InputValueDefinition(_, _: NonNullType, None, _) => true
+        case _                                                => false
+      }
+      .map(_.name)
+  val requiredArgErrors = requiredArgs
+    .filter(argName => field.arguments.find(_.name == argName).isEmpty)
+    .map(argName => MissingArgument(argName, field.name, parentType))
+
+  argErrors ::: argUniquenessErrors ::: requiredArgErrors
+end validateArguments
+
 /** Performs various validation steps on the selection sets. Bear in mind that this function will
   * not validate fragment definitions but will validate inline fragment definitions, you must call
   * validateFragmentDefinition as well as this function to fully validate an executable document.
@@ -214,52 +318,18 @@ private def validateSelectionSet(
       case Nil => accErrs
       case (parentType, selection) :: tail =>
         selection match
-          case Field(_, fieldName, arguments, _, selectionSet) =>
+          case field @ Field(_, fieldName, arguments, _, selectionSet) =>
             // 5.3.1 field selections must exist on object, interface and union types
             findFieldDef(fieldName, parentType, schema) match
-              case None           => MissingField(fieldName, Some(parentType)) :: accErrs
+              case None => MissingField(fieldName, parentType) :: accErrs
               case Some(fieldDef) =>
-                // 5.4.1 args exist
-                // TODO: Include directives in this
-                val argExistenceErrors =
-                  arguments
-                    .flatMap { arg =>
-                      fieldDef.arguments.find(_.name == arg.name) match
-                        case None =>
-                          MissingArgumentDefinition(arg.name, fieldName, parentType) :: Nil
-                        case _ => Nil
-                    }
+                val argErrs = validateArguments(field, fieldDef, parentType, schema)
+                val errors  = argErrs ::: accErrs
 
-                // 5.4.2 args are unique
-                // TODO: Include directives in this
-                val argUniquenessErrors =
-                  arguments
-                    .groupBy(_.name)
-                    .filter { case (argName, args) => args.size > 1 }
-                    .map { case (argName, _) => DuplicateArgument(argName, fieldName, parentType) }
-                    .toList
-
-                // 5.4.2.1 required args
-                // TODO: Include directives in this
-                val requiredArgs =
-                  fieldDef.arguments
-                    .filter {
-                      case InputValueDefinition(_, _: NonNullType, None, _) => true
-                      case _                                                => false
-                    }
-                    .map(_.name)
-                val requiredArgErrors = requiredArgs
-                  .filter(argName => arguments.find(_.name == argName).isEmpty)
-                  .map(argName => MissingArgument(argName, fieldName, parentType))
-
-                val errors =
-                  argExistenceErrors ::: argUniquenessErrors ::: requiredArgErrors ::: accErrs
-
-                val fieldNamedType: NamedType = NamedType(fieldDef.tpe.name)
-
-                findTypeDef(fieldNamedType, schema) match
+                val fieldType: NamedType = NamedType(fieldDef.tpe.name)
+                findTypeDef(fieldType, schema) match
                   case None =>
-                    recurse(tail, accFragDefs, MissingTypeDefinition(fieldNamedType) :: errors)
+                    recurse(tail, accFragDefs, MissingTypeDefinition(fieldType) :: errors)
 
                   // We found it but it's a leaf type so we can't recurse into its children,
                   // instead just carry on with the parent types other selections (tail)
@@ -276,6 +346,7 @@ private def validateSelectionSet(
                     else
                       val typeAndSelection = selectionSet.map(NamedType(typeDef.name) -> _)
                       recurse(typeAndSelection ::: tail, accFragDefs, errors)
+                end match
 
           case InlineFragment(Some(onType), _, selectionSet) =>
             val typeErrs         = validateObjectLikeTypeDefExists(onType, schema)
@@ -298,6 +369,7 @@ private def validateSelectionSet(
             // set of a fragment definition and therefore need to recurse.
             if accFragDefs.nonEmpty then
               // 5.5.2.2 Fragment definitions must not contain cycles
+              // TODO: Extract this to a separate function
               val containsCycles = accFragDefs.contains(name)
 
               if containsCycles then FragmentContainsCycles(name) :: accErrs
@@ -412,4 +484,19 @@ def validate(
 end validate
 
 // 5.3.2 (10-2021)
+// TODO: Implement this validator.
+
+// 5.5.2.3.1
+// TODO: Implement this validator.
+
+// 5.5.2.3.2
+// TODO: Implement this validator.
+
+// 5.5.2.3.3
+// TODO: Implement this validator.
+
+// 5.5.2.3.4
+// TODO: Implement this validator.
+
+// 5.6.1
 // TODO: Implement this validator.

@@ -319,5 +319,7 @@ class SchemaParserSuite extends FunSuite:
   }
 
   test("document") {
-    assert(clue(typeSystemDocument.parse(schemaStr)) == Right("", schemaDoc))
+    assert(clue(typeSystemDocument.parse(schemaStr)) == clue(Right("", schemaDoc)))
   }
+
+end SchemaParserSuite
