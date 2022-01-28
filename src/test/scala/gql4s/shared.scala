@@ -70,7 +70,7 @@ val schemaStr = """
   }
   
   input ComplexInput {
-    name: Name
+    name: Name!
     owner: String
   }
 """
@@ -226,7 +226,7 @@ val schemaDoc = NonEmptyList.of(
     Name("ComplexInput"),
     Nil,
     List(
-      InputValueDefinition(Name("name"), NamedType(Name("Name")), None, Nil),
+      InputValueDefinition(Name("name"), NonNullType(NamedType(Name("Name"))), None, Nil),
       InputValueDefinition(Name("owner"), NamedType(Name("String")), None, Nil)
     )
   )

@@ -185,6 +185,7 @@ def validateObjectLikeTypeDefExists(
 
 /**   - 5.6.2
   *   - 5.6.3
+  *   - 5.6.4
   */
 def validateInputObjectValue(
     inObjVal: ObjectValue,
@@ -216,7 +217,18 @@ def validateInputObjectValue(
             findInputObjTypeDef(inValDef.tpe.name, schema) match
               case None =>
                 recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: errs)
-              case Some(inObjTypeDef) => recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, errs)
+              case Some(inObjTypeDef) =>
+                // 5.6.4 input objects required fields
+                val requiredErrs = inObjTypeDef.fieldsDef
+                  .filter(_.tpe.isInstanceOf[NonNullType])
+                  .map(_.name)
+                  .flatMap { name =>
+                    value.fields.find(_.name == name) match
+                      case None    => List(MissingField(name, NamedType(inObjTypeDef.name)))
+                      case Some(_) => Nil
+                  }
+
+                recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, errs)
 
       case (ObjectField(name, value), inObjTypeDef) :: tail =>
         // 5.6.2 input object field exists
@@ -234,7 +246,18 @@ def validateInputObjectValue(
 
   findInputObjTypeDef(inValDef.tpe.name, schema) match
     case None               => MissingInputObjectTypeDefinition(inValDef.tpe.name) :: duplicateErrs
-    case Some(inObjTypeDef) => recurse(inObjVal.fields.map(_ -> inObjTypeDef), duplicateErrs)
+    case Some(inObjTypeDef) =>
+      // 5.6.4 input objects required fields
+      val requiredErrs = inObjTypeDef.fieldsDef
+        .filter(_.tpe.isInstanceOf[NonNullType])
+        .map(_.name)
+        .flatMap { name =>
+          inObjVal.fields.find(_.name == name) match
+            case None    => List(MissingField(name, NamedType(inObjTypeDef.name)))
+            case Some(_) => Nil
+        }
+
+      recurse(inObjVal.fields.map(_ -> inObjTypeDef), duplicateErrs ::: requiredErrs)
 end validateInputObjectValue
 
 /** Validate a fields arguments

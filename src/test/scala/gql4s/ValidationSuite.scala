@@ -469,7 +469,7 @@ class ValidationSuite extends FunSuite:
   test("input objects fields must be defined") {
     val doc1 = """
     {
-      findDog(complex: { owner: "Fido" }) {
+      findDog(complex: { name: { first: "Turner" }, owner: "Fido" }) {
         name
       }
     }
@@ -540,5 +540,23 @@ class ValidationSuite extends FunSuite:
         val expected = DuplicateField(Name("first"))
         assertEquals(clue(actual), clue(Some(expected)))
       case _ => fail("failed to parse doc2")
+  }
+
+  test("input object values must include required fields") {
+    val doc1 = """
+    {
+      findDog(complex: { owner: "Turner" }) {
+        name
+      }
+    }
+    """
+
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) =>
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.find(_.isInstanceOf[MissingField])
+        val expected = MissingField(Name("name"), NamedType(Name("ComplexInput")))
+        assertEquals(clue(actual), clue(Some(expected)))
+      case _ => fail("failed to parse doc1")
   }
 end ValidationSuite
