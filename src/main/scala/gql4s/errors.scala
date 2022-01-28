@@ -20,6 +20,7 @@ enum GqlError:
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case DuplicateFragmentDefinition(fragName: Name)
   case DuplicateOperationDefinition(opName: Name)
+  case DuplicateField(fieldName: Name)
   case FragmentContainsCycles(fragName: Name)
   case MultipleAnonymousQueries
   case AnonymousQueryNotAlone

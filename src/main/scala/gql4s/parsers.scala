@@ -451,8 +451,8 @@ val directiveDefinition =
       DirectiveDefinition(name, args, repeatable, dirs)
     }
 
-// ///////////////////////////////////////////////////////////////////////////////////////////////////
-// // Definitions & Documents
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Definitions & Documents
 val executableDefinition = operationDefinition | fragmentDefinition
 val executableDocument   = __ *> (executableDefinition <* __).rep
 

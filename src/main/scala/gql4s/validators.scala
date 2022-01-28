@@ -184,6 +184,7 @@ def validateObjectLikeTypeDefExists(
     case None          => MissingTypeDefinition(namedType) :: Nil
 
 /**   - 5.6.2
+  *   - 5.6.3
   */
 def validateInputObjectValue(
     inObjVal: ObjectValue,
@@ -199,15 +200,23 @@ def validateInputObjectValue(
       case Nil => accErrs
 
       case (ObjectField(name, value: ObjectValue), inObjTypeDef) :: tail =>
+        // 5.6.3 input object field duplicates
+        val duplicateErrs = value.fields
+          .groupBy(_.name)
+          .filter(_._2.length > 1)
+          .map { case (name, _) => DuplicateField(name) }
+          .toList
+
+        val errs = duplicateErrs ::: accErrs
+
         // 5.6.2 input object field exists
         inObjTypeDef.fieldsDef.find(_.name == name) match
-          case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: accErrs)
+          case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: errs)
           case Some(inValDef) =>
             findInputObjTypeDef(inValDef.tpe.name, schema) match
               case None =>
-                recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: accErrs)
-              case Some(inObjTypeDef) =>
-                recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, accErrs)
+                recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: errs)
+              case Some(inObjTypeDef) => recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, errs)
 
       case (ObjectField(name, value), inObjTypeDef) :: tail =>
         // 5.6.2 input object field exists
@@ -216,9 +225,16 @@ def validateInputObjectValue(
           case Some(_) => recurse(tail, accErrs)
   end recurse
 
+  // 5.6.3 input object field duplicates
+  val duplicateErrs = inObjVal.fields
+    .groupBy(_.name)
+    .filter(_._2.length > 1)
+    .map { case (name, _) => DuplicateField(name) }
+    .toList
+
   findInputObjTypeDef(inValDef.tpe.name, schema) match
-    case None               => List(MissingInputObjectTypeDefinition(inValDef.tpe.name))
-    case Some(inObjTypeDef) => recurse(inObjVal.fields.map(_ -> inObjTypeDef))
+    case None               => MissingInputObjectTypeDefinition(inValDef.tpe.name) :: duplicateErrs
+    case Some(inObjTypeDef) => recurse(inObjVal.fields.map(_ -> inObjTypeDef), duplicateErrs)
 end validateInputObjectValue
 
 /** Validate a fields arguments

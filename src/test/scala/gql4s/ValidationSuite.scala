@@ -507,4 +507,38 @@ class ValidationSuite extends FunSuite:
         assertEquals(clue(actual), clue(Some(expected)))
       case _ => fail("failed to parse doc3")
   }
+
+  test("input object fields must be unique") {
+    val doc1 = """
+    {
+      findDog(complex: { name: { first: "fido" }, name: { first: "asdf" } }) {
+        name
+      }
+    }
+    """
+
+    val doc2 = """
+    {
+      findDog(complex: { name: { first: "fido", first: "asdf" } }) {
+        name
+      }
+    }
+    """
+
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) =>
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.find(_.isInstanceOf[DuplicateField])
+        val expected = DuplicateField(Name("name"))
+        assertEquals(clue(actual), clue(Some(expected)))
+      case _ => fail("failed to parse doc1")
+
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) =>
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.find(_.isInstanceOf[DuplicateField])
+        val expected = DuplicateField(Name("first"))
+        assertEquals(clue(actual), clue(Some(expected)))
+      case _ => fail("failed to parse doc2")
+  }
 end ValidationSuite
