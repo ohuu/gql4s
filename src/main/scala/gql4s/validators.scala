@@ -441,10 +441,22 @@ private def validateOperationDefinition(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
-  findOperationTypeDef(opDef.operationType, schema) match
+  // 5.8.1 unique variables
+  val duplicateVarErrs = opDef.variableDefinitions
+    .groupBy(_.name)
+    .flatMap {
+      case (name, vars) if vars.length > 1 => List(DuplicateVariable(name))
+      case _                               => Nil
+    }
+    .toList
+
+  val selectionSetErrs = findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
       validateSelectionSet(opDef.selectionSet.toList, None, NamedType(typeDef.name), doc, schema)
+
+  duplicateVarErrs ::: selectionSetErrs
+end validateOperationDefinition
 
 private def validateFragmentDefinition(
     fragDef: FragmentDefinition,
@@ -538,4 +550,13 @@ end validate
 // TODO: Implement this validator.
 
 // 5.6.1
+// TODO: Implement this validator.
+
+// 5.7.1
+// TODO: Implement this validator.
+
+// 5.7.2
+// TODO: Implement this validator.
+
+// 5.7.3
 // TODO: Implement this validator.

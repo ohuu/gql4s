@@ -559,4 +559,40 @@ class ValidationSuite extends FunSuite:
         assertEquals(clue(actual), clue(Some(expected)))
       case _ => fail("failed to parse doc1")
   }
+
+  test("variables must be unique") {
+    val doc1 = """
+    query houseTrainedQuery($atOtherHomes: Boolean, $atOtherHomes: Boolean) {
+      dog {
+        isHouseTrained(atOtherHomes: $atOtherHomes)
+      }
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) =>
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.find(_.isInstanceOf[DuplicateVariable])
+        val expected = DuplicateVariable(Name("atOtherHomes"))
+        assertEquals(clue(actual), clue(Some(expected)))
+      case _ => fail("failed to parse doc1")
+
+    val doc2 = """
+    query A($atOtherHomes: Boolean) {
+      ...HouseTrainedFragment
+    }
+
+    query B($atOtherHomes: Boolean) {
+      ...HouseTrainedFragment
+    }
+
+    fragment HouseTrainedFragment on Query {
+      dog {
+        isHouseTrained(atOtherHomes: $atOtherHomes)
+      }
+    }
+    """
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
+      case _               => fail("failed to parse doc2")
+  }
 end ValidationSuite
