@@ -13,6 +13,7 @@ val schemaStr = """
     dog: Dog
     multipleRequirements(x: Int!, y: Int!): Int!
     findDog(complex: ComplexInput): Dog
+    booleanList(booleanListArg: [Boolean!]): Boolean
   }
 
   enum DogCommand {
@@ -95,6 +96,19 @@ val schemaDoc = NonEmptyList.of(
         Name("findDog"),
         List(InputValueDefinition(Name("complex"), NamedType(Name("ComplexInput")), None, Nil)),
         NamedType(Name("Dog")),
+        Nil
+      ),
+      FieldDefinition(
+        Name("booleanList"),
+        List(
+          InputValueDefinition(
+            Name("booleanListArg"),
+            ListType(NonNullType(NamedType(Name("Boolean")))),
+            None,
+            Nil
+          )
+        ),
+        NamedType(Name("Boolean")),
         Nil
       )
     )

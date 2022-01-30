@@ -595,4 +595,59 @@ class ValidationSuite extends FunSuite:
       case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc2")
   }
+
+  test("variables must be an input type") {
+    val doc1 = """
+    query takesBoolean($atOtherHomes: Boolean) {
+      dog {
+        isHouseTrained(atOtherHomes: $atOtherHomes)
+      }
+    }
+
+    query takesComplexInput($complexInput: ComplexInput) {
+      findDog(complex: $complexInput) {
+        name
+      }
+    }
+
+    query TakesListOfBooleanBang($booleans: [Boolean!]) {
+      booleanList(booleanListArg: $booleans)
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
+      case _               => fail("failed to parse doc1")
+
+    val doc2 = """
+    query takesCat($cat: Cat) {
+      name
+    }
+
+    query takesDogBang($dog: Dog!) {
+      name
+    }
+
+    query takesListOfPet($pets: [Pet]) {
+      name
+    }
+
+    query takesCatOrDog($catOrDog: CatOrDog) {
+      name
+    }
+    """
+
+    executableDocument.parse(doc2) match
+      case Right(_ -> doc) =>
+        val errs   = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual = errs.filter(_.isInstanceOf[IllegalType])
+        val expected =
+          List(
+            IllegalType(NamedType(Name("Cat"))),
+            IllegalType(NonNullType(NamedType(Name("Dog")))),
+            IllegalType(ListType(NamedType(Name("Pet")))),
+            IllegalType(NamedType(Name("CatOrDog")))
+          )
+        assertEquals(clue(actual), clue(expected))
+      case _ => fail("failed to parse doc2")
+  }
 end ValidationSuite

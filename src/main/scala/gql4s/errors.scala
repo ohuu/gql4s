@@ -16,7 +16,7 @@ enum GqlError:
   case MissingArgument(argName: Name, fieldName: Name, parentType: NamedType)
   case MissingInputObjectTypeDefinition(typeName: Name)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
-  case IllegalType(namedType: NamedType)
+  case IllegalType(tpe: Type)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case DuplicateFragmentDefinition(fragName: Name)
   case DuplicateOperationDefinition(opName: Name)

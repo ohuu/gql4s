@@ -134,6 +134,13 @@ private def findFragmentSpreads(doc: ExecutableDocument): List[FragmentSpread] =
     .flatMap(recurse(_, Nil))
 end findFragmentSpreads
 
+def isLeafType(`type`: Type): Boolean = `type`.name match
+  case Name("Int") | Name("Float") | Name("String") | Name("Boolean") | Name("ID") => true
+  case Name(_)                                                                     => false
+
+def isInputType(`type`: Type, schema: TypeSystemDocument): Boolean =
+  isLeafType(`type`) || findInputObjTypeDef(`type`.name, schema).isDefined
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Validators
 
@@ -450,12 +457,17 @@ private def validateOperationDefinition(
     }
     .toList
 
+  // 5.8.2 variable type must be an input type
+  val inputTypeErrs = opDef.variableDefinitions
+    .filter(varDef => !isInputType(varDef.tpe, schema))
+    .map(varDef => IllegalType(varDef.tpe))
+
   val selectionSetErrs = findOperationTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
       validateSelectionSet(opDef.selectionSet.toList, None, NamedType(typeDef.name), doc, schema)
 
-  duplicateVarErrs ::: selectionSetErrs
+  duplicateVarErrs ::: inputTypeErrs ::: selectionSetErrs
 end validateOperationDefinition
 
 private def validateFragmentDefinition(
