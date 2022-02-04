@@ -15,6 +15,7 @@ enum GqlError:
   case MissingArgumentDefinition(argName: Name, fieldName: Name, parentType: NamedType)
   case MissingArgument(argName: Name, fieldName: Name, parentType: NamedType)
   case MissingInputObjectTypeDefinition(typeName: Name)
+  case MissingVariable(varName: Name)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case IllegalType(tpe: Type)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
@@ -27,3 +28,4 @@ enum GqlError:
   case AnonymousQueryNotAlone
   case SubscriptionHasMultipleRoots(subName: Option[Name])
   case UnusedFragment(fragName: Name)
+  case UnusedVariable(varName: Name)

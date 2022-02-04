@@ -208,6 +208,10 @@ class ValidationSuite extends FunSuite:
         sinceWhen
       }
     }
+
+    {
+      ...scalarSelectionsNotAllowedOnInt
+    }
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
@@ -243,6 +247,10 @@ class ValidationSuite extends FunSuite:
     fragment invalidArgName on Dog {
       doesKnowCommand(command: CLEAN_UP_HOUSE)
     }
+
+    {
+      ...invalidArgName
+    }
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
@@ -260,6 +268,10 @@ class ValidationSuite extends FunSuite:
     val doc3 = """
     fragment argOnRequiredArg on Dog {
       doesKnowCommand(dogCommand: SIT, dogCommand: SIT)
+    }
+
+    {
+      ...argOnRequiredArg
     }
     """
     executableDocument.parse(doc3) match
@@ -387,6 +399,14 @@ class ValidationSuite extends FunSuite:
         name
       }
     }
+
+    {
+      ...notOnExistingType
+
+      dog {
+        ...inlineNotExistingType
+      }
+    }
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
@@ -456,12 +476,9 @@ class ValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs   = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
-        val actual = errs.filter(_.isInstanceOf[FragmentContainsCycles])
-        val expected = List(
-          FragmentContainsCycles(Name("nameFragment")),
-          FragmentContainsCycles(Name("barkVolumeFragment"))
-        )
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
+        val actual   = errs.filter(_.isInstanceOf[FragmentContainsCycles])
+        val expected = List(FragmentContainsCycles(Name("nameFragment")))
         assertEquals(clue(actual), clue(expected))
       case _ => fail("failed to parse doc")
   }
