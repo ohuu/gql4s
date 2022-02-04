@@ -553,7 +553,7 @@ private def validateOperationDefinition(
     case Some(typeDef) =>
       validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
 
-  duplicateVarErrs ::: inputTypeErrs ::: /*varDefinedErrs ::: unusedVarErrs :::*/ selectionSetErrs
+  duplicateVarErrs ::: inputTypeErrs ::: varDefinedErrs ::: unusedVarErrs ::: selectionSetErrs
 end validateOperationDefinition
 
 private def validateFragmentDefinition(

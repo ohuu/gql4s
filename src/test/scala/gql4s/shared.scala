@@ -76,7 +76,7 @@ val schemaStr = """
   }
 """
 
-val schemaDoc = NonEmptyList.of(
+val schema = NonEmptyList.of(
   ObjectTypeDefinition(
     Name("Query"),
     Nil,
