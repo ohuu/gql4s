@@ -14,33 +14,27 @@ import OperationType.*
 import Selection.*
 import Type.*
 import Value.*
+import scala.collection.mutable.LinkedHashMap
 
 /** A table mapping definition names to the set of variables required to execute that definition. */
-// TODO: Remove this when the reverse topological validation of frag defs is complete
-type VarReqs = Map[Name, Set[Variable]]
+type FragDefReqsTable = Map[Name, Set[Variable]]
+
+/** A mapping from fragment defintion to its dependencies */
+type FragDefDepsGraph = LinkedHashMap[FragmentDefinition, Set[Name]] // maintains insertion order 👍
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Helper Functions
-//
-// QUESTION: The results of these functions could perhaps be calculated once and stored in a single
-//           place like a Symbol Table
 
-private def findFragDef(fragName: Name, doc: ExecutableDocument): Option[FragmentDefinition] =
+def findFragDef(fragName: Name, doc: ExecutableDocument): Option[FragmentDefinition] =
   doc.collect { case f: FragmentDefinition => f }.find(_.name.get == fragName)
 
-private def findObjTypeDef(
-    namedType: NamedType,
-    schema: TypeSystemDocument
-): Option[ObjectTypeDefinition] =
+def findObjTypeDef(namedType: NamedType, schema: TypeSystemDocument): Option[ObjectTypeDefinition] =
   schema.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
 
-private def findInputObjTypeDef(
-    name: Name,
-    schema: TypeSystemDocument
-): Option[InputObjectTypeDefinition] =
+def findInputObjTypeDef(name: Name, schema: TypeSystemDocument): Option[InputObjectTypeDefinition] =
   schema.collect { case o: InputObjectTypeDefinition => o }.find(_.name == name)
 
-private def findTypeDef(namedType: NamedType, schema: TypeSystemDocument): Option[TypeDefinition] =
+def findTypeDef(namedType: NamedType, schema: TypeSystemDocument): Option[TypeDefinition] =
   namedType match
     case NamedType(Name("Int"))     => Some(ScalarTypeDefinition(Name("Int"), Nil))
     case NamedType(Name("Float"))   => Some(ScalarTypeDefinition(Name("Float"), Nil))
@@ -60,7 +54,7 @@ private def findTypeDef(namedType: NamedType, schema: TypeSystemDocument): Optio
   * @return
   *   Some MissingField error if the field cannot be found, None if it can.
   */
-private def findFieldDef(
+def findFieldDef(
     fieldName: Name,
     namedType: NamedType,
     schema: TypeSystemDocument
@@ -94,10 +88,7 @@ private def findFieldDef(
   recurse(List(namedType))
 end findFieldDef
 
-private def findOperationTypeDef(
-    opType: OperationType,
-    schema: TypeSystemDocument
-): Option[ObjectTypeDefinition] =
+def findOpTypeDef(opType: OperationType, schema: TypeSystemDocument): Option[ObjectTypeDefinition] =
   val schemaDef = schema.collect { case s: SchemaDefinition => s }.headOption
   schemaDef match
     case Some(SchemaDefinition(_, roots)) =>
@@ -110,7 +101,7 @@ private def findOperationTypeDef(
         case Query        => findObjTypeDef(NamedType(Name("Query")), schema)
         case Mutation     => findObjTypeDef(NamedType(Name("Mutation")), schema)
         case Subscription => findObjTypeDef(NamedType(Name("Subscription")), schema)
-end findOperationTypeDef
+end findOpTypeDef
 
 /** Finds unique uses of fragment spreads.
   *
@@ -118,7 +109,7 @@ end findOperationTypeDef
   *   A list of fragment spreads which are used in the given document. No duplicates will exist in
   *   the list.
   */
-private def findFragmentSpreads(doc: ExecutableDocument): List[FragmentSpread] =
+def findFragSpreads(doc: ExecutableDocument): List[FragmentSpread] =
   @tailrec
   def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
     accSelectionSet match
@@ -136,7 +127,7 @@ private def findFragmentSpreads(doc: ExecutableDocument): List[FragmentSpread] =
     .collect { case o: OperationDefinition => o }
     .map(_.selectionSet.toList)
     .flatMap(recurse(_, Nil))
-end findFragmentSpreads
+end findFragSpreads
 
 def isLeafType(`type`: Type): Boolean = `type`.name match
   case Name("Int") | Name("Float") | Name("String") | Name("Boolean") | Name("ID") => true
@@ -145,23 +136,17 @@ def isLeafType(`type`: Type): Boolean = `type`.name match
 def isInputType(`type`: Type, schema: TypeSystemDocument): Boolean =
   isLeafType(`type`) || findInputObjTypeDef(`type`.name, schema).isDefined
 
-/** Builds a table of variables required to execute the given fragment definition
-  */
-// TODO: Do a topological sort on the fragment definitions and call this function in the order of
-//       that sort.
-//       Add the current requirement map as a param to this function.
-//       Don't recurse into child fragment definitions because their requirements have already been
-//       found.
-//       Return a single Set[Varialbe] from this function.
-def findFragmentDefinitionRequirements(
+/** Builds a table of variables required to execute the given fragment definition */
+def findFragDefReqs(
     fragDef: FragmentDefinition,
+    depReqs: FragDefReqsTable,
     doc: ExecutableDocument
-): VarReqs =
+): FragDefReqsTable =
   @tailrec
   def recurse(
       accSelectionSets: List[(Name, Selection)],
-      accReqs: VarReqs = Map.empty
-  ): VarReqs =
+      accReqs: FragDefReqsTable = Map.empty
+  ): FragDefReqsTable =
     accSelectionSets match
       case Nil => accReqs
 
@@ -183,26 +168,23 @@ def findFragmentDefinitionRequirements(
           case frag: FragmentSpread =>
             findFragDef(frag.name, doc) match
               case None =>
-                // TODO: Is this even possible or are all frag defs shown to exist by this point?
+                // Although fragment definition existence has been checked by this point we must
+                // still handle the condition where None is found because validation does not stop
+                // premeturely if some fragments are found to not exist.
                 recurse(tail, accReqs)
 
               case Some(fragDef) =>
-                val accSelectionSet = fragDef.selectionSet.toList.map(fragDef.name.get -> _)
-                val reqs            = fragDef.name.get -> Set.empty[Variable]
-                recurse(accSelectionSet ::: tail, accReqs + reqs)
+                recurse(tail, accReqs + (fragDef.name.get -> depReqs(fragDef.name.get)))
         end match
     end match
   end recurse
 
-  val selectionSet  = fragDef.selectionSet.toList.map(fragDef.name.get -> _)
-  val reqs: VarReqs = Map(fragDef.name.get -> Set.empty)
+  val selectionSet           = fragDef.selectionSet.toList.map(fragDef.name.get -> _)
+  val reqs: FragDefReqsTable = Map(fragDef.name.get -> Set.empty)
   recurse(selectionSet, reqs)
-end findFragmentDefinitionRequirements
+end findFragDefReqs
 
-def findOperationDefinitionRequirements(
-    opDef: OperationDefinition,
-    fragDefReqs: Map[Name, Set[Variable]]
-): Set[Variable] =
+def findOpDefReqs(opDef: OperationDefinition, fragDefReqs: FragDefReqsTable): Set[Variable] =
   @tailrec
   def recurse(
       accSelectionSets: List[Selection],
@@ -228,7 +210,57 @@ def findOperationDefinitionRequirements(
   end recurse
 
   recurse(opDef.selectionSet.toList)
-end findOperationDefinitionRequirements
+end findOpDefReqs
+
+def buildFragDefDepGraph(fragDefs: List[FragmentDefinition]): FragDefDepsGraph =
+  @tailrec
+  def recurse(accSelectionSet: List[Selection], accDeps: Set[Name] = Set.empty): Set[Name] =
+    accSelectionSet match
+      case Nil                            => accDeps
+      case (field: Field) :: tail         => recurse(field.selectionSet ::: tail, accDeps)
+      case (frag: InlineFragment) :: tail => recurse(frag.selectionSet.toList ::: tail, accDeps)
+      case (frag: FragmentSpread) :: tail => recurse(tail, accDeps + frag.name)
+    end match
+  end recurse
+
+  if fragDefs.nonEmpty then
+    LinkedHashMap.from(
+      fragDefs
+        .map(fragDef =>
+          val deps = recurse(fragDef.selectionSet.toList)
+          fragDef -> deps
+        )
+    )
+  else LinkedHashMap.empty
+end buildFragDefDepGraph
+
+// QUESTION: Maybe change this to a while loop?
+def topologicalSort(graph: FragDefDepsGraph): Either[List[GqlError], FragDefDepsGraph] =
+  @tailrec
+  def recurse(
+      graph: FragDefDepsGraph,
+      ordering: FragDefDepsGraph = LinkedHashMap.empty
+  ): Either[List[GqlError], FragDefDepsGraph] =
+    if graph.isEmpty then ordering.asRight
+    else
+      // find a node with zero inputs
+      val zeroDegree =
+        graph
+          .find((fragDef, _) => graph.find((_, deps) => deps.contains(fragDef.name.get)).isEmpty)
+
+      zeroDegree match
+        // 5.5.2.2 Fragment definitions must not contain cycles
+        case None =>
+          graph.map((fragDef, _) => FragmentContainsCycles(fragDef.name.get)).toList.asLeft
+        case Some(zeroDegree @ (zeroDegreeFragDef, _)) =>
+          recurse(
+            graph.filter((fragDef, _) => fragDef != zeroDegreeFragDef),
+            ordering += zeroDegree
+          )
+  end recurse
+
+  recurse(graph)
+end topologicalSort
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Validators
@@ -430,21 +462,6 @@ end validateArguments
   * @return
   *   Return a list of errors or Nil if there weren't any.
   */
-// TODO: This function is WAY too complicated! It needs to be broken down and documented better.
-//       I really don't like the added complication of checking for cycles within fragment
-//       definitions, it's why fragDef is passed to it and why accFragDefs is passed to the
-//       recurse function. It feels as though cycle validation should be factored out into a
-//       separate function but it's not easy to do that without repeating code but maybe that's
-//       the lesser of two evils?
-
-// TODO: Add 2 bits to fragmentdef validation function, 1 which checks for cycles, 1 which builds a table
-//       of used variables (requirements of the fragment).
-//       Remove the fragment cycle check from validateSelectionSet.
-//       Add specialised recursive check to validateOperationDefinition that checks variables are defined
-//       and all variables are used. This requires that the fragment requirements table is passed to
-//       validateOperationDefinition.
-//       Add step to main validate function which stops any further validation taking place if any cycles
-//       are found in the validateFragmentDefinitions step.
 private def validateSelectionSet(
     selectionSet: List[Selection],
     parentType: NamedType,
@@ -514,11 +531,11 @@ end validateSelectionSet
 
 private def validateOperationDefinition(
     opDef: OperationDefinition,
-    fragDefReqs: Map[Name, Set[Variable]],
+    fragDefReqs: FragDefReqsTable,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
-  val opDefReqs = findOperationDefinitionRequirements(opDef, fragDefReqs)
+  val opDefReqs = findOpDefReqs(opDef, fragDefReqs)
 
   // 5.8.1 unique variables
   val duplicateVarErrs = opDef.variableDefinitions
@@ -548,7 +565,7 @@ private def validateOperationDefinition(
     else Some(UnusedVariable(varDef.name))
   )
 
-  val selectionSetErrs = findOperationTypeDef(opDef.operationType, schema) match
+  val selectionSetErrs = findOpTypeDef(opDef.operationType, schema) match
     case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
     case Some(typeDef) =>
       validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
@@ -560,54 +577,13 @@ private def validateFragmentDefinition(
     fragDef: FragmentDefinition,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
-): Either[List[GqlError], VarReqs] =
-  // QUESTION: Maybe this function should be factored out into a separate function
-  @tailrec
-  def recurse(
-      accSelectionSet: List[Selection],
-      accFragDefs: NonEmptyList[Name],
-      accErrs: List[GqlError] = Nil
-  ): List[GqlError] =
-    accSelectionSet match
-      case Nil => accErrs
-      case selection :: tail =>
-        selection match
-          case field: Field => recurse(field.selectionSet ::: tail, accFragDefs, accErrs)
-
-          case frag: InlineFragment =>
-            recurse(frag.selectionSet.toList ::: tail, accFragDefs, accErrs)
-
-          case frag: FragmentSpread =>
-            // 5.5.2.1 Fragment definition must exist
-            val fragDef = findFragDef(frag.name, doc)
-
-            // 5.5.2.2 Fragment definitions must not contain cycles
-            val containsCycles = accFragDefs.exists(_ == frag.name)
-
-            if containsCycles then FragmentContainsCycles(frag.name) :: accErrs
-            else
-              fragDef match
-                case None =>
-                  recurse(tail, accFragDefs, MissingFragmentDefinition(frag.name) :: accErrs)
-                case Some(fragDef) =>
-                  recurse(fragDef.selectionSet.toList ::: tail, frag.name :: accFragDefs, accErrs)
-        end match
-    end match
-  end recurse
-
-  val fragDefErrs   = recurse(fragDef.selectionSet.toList, NonEmptyList.one(fragDef.name.get))
+): List[GqlError] =
   val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, doc, schema)
   val typeErrs      = validateObjectLikeTypeDefExists(fragDef.on, schema)
-
-  val errs = fragDefErrs ::: selectionErrs ::: typeErrs
-
-  errs match
-    case Nil  => findFragmentDefinitionRequirements(fragDef, doc).asRight
-    case errs => errs.asLeft
-end validateFragmentDefinition
+  selectionErrs ::: typeErrs
 
 private def validateOperationDefinitions(
-    fragDefReqs: VarReqs,
+    fragDefReqs: FragDefReqsTable,
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): List[GqlError] =
@@ -636,43 +612,64 @@ end validateOperationDefinitions
 private def validateFragmentDefinitions(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
-): Either[List[GqlError], VarReqs] =
+): Either[List[GqlError], FragDefReqsTable] =
   val fragDefs = doc.collect { case o: FragmentDefinition => o }
 
-  // 5.5.1.1 fragment definition unique name
-  val uniquenessErrs = fragDefs
-    .groupBy(_.name)
-    .filter { case _ -> xs => xs.length > 1 }
-    .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
-    .toList
+  // 5.5.2.2 Fragment definitions must not contain cycles
+  // topologically sorting the fragment dependency graph will find cycles and provide an order to
+  // find fragment definition requirements
+  topologicalSort(buildFragDefDepGraph(fragDefs))
+    .flatMap(sortedGraph =>
+      // 5.5.1.1 fragment definition unique name
+      val uniquenessErrs = fragDefs
+        .groupBy(_.name)
+        .filter { case _ -> xs => xs.length > 1 }
+        .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
+        .toList
 
-  // 5.5.1.4 Fragment definitions must be used
-  val fragDefNames = fragDefs.map(_.name.get)
-  val fragSpreads  = findFragmentSpreads(doc).map(_.name)
-  val unusedErrs = fragDefNames
-    .filterNot(fragSpreads.contains)
-    .map(UnusedFragment(_))
+      // 5.5.1.4 Fragment definitions must be used
+      val fragDefNames = fragDefs.map(_.name.get)
+      val fragSpreads  = findFragSpreads(doc).map(_.name)
+      val unusedErrs = fragDefNames
+        .filterNot(fragSpreads.contains)
+        .map(UnusedFragment(_))
 
-  val errsSoFar = uniquenessErrs ::: unusedErrs
+      // 5.5.2.1 Fragment definition must exist
+      val missingFragDefErrs = sortedGraph
+        .flatMap((name, deps) =>
+          deps.flatMap(depName =>
+            if sortedGraph.exists((fragDef, _) => fragDef.name.get == depName) then None
+            else Some(MissingFragmentDefinition(depName))
+          )
+        )
+        .toList
 
-  errsSoFar match
-    case Nil =>
-      fragDefs
-        .traverse(validateFragmentDefinition(_, doc, schema))
-        .leftMap(errs => errsSoFar ::: errs) // collect and return errors if left
-        .map {
-          case Nil  => Map.empty
-          case reqs => reqs.reduce(_ combine _)
-        } // combine and return reqs if right
+      val fragDefErrs = fragDefs.flatMap(validateFragmentDefinition(_, doc, schema))
+      val errs        = uniquenessErrs ::: unusedErrs ::: missingFragDefErrs ::: fragDefErrs
 
-    case errs => errs.asLeft
+      errs match
+        case Nil =>
+          if sortedGraph.isEmpty then Map.empty.asRight
+          else
+            // convert sorted graph to list of sorted frag defs
+            val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
+
+            val rootFragDefReqs =
+              findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
+
+            sortedFragDefs
+              .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
+                findFragDefReqs(fragDef, accReqs, doc)
+              )
+              .asRight
+        case errs => errs.asLeft
+    )
 end validateFragmentDefinitions
 
 def validate(
     doc: ExecutableDocument,
     schema: TypeSystemDocument
 ): Either[NonEmptyList[GqlError], ExecutableDocument] =
-  // TODO: Topologically sort fragment defs and validate them in reverse order
   val fragmentErrs = validateFragmentDefinitions(doc, schema)
 
   // if any fragment errs exist then bail and return them
@@ -715,4 +712,7 @@ end validate
 // TODO: Implement this validator.
 
 // 5.7.3
+// TODO: Implement this validator.
+
+// 5.8.5
 // TODO: Implement this validator.
