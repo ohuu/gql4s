@@ -8,7 +8,7 @@ import cats.data.NonEmptyList
 import Type.*
 import Value.*
 
-val schemaStr = """
+val schemaStr1 = """
   type Query {
     dog: Dog
     multipleRequirements(x: Int!, y: Int!): Int!
@@ -76,7 +76,7 @@ val schemaStr = """
   }
 """
 
-val schemaDoc = NonEmptyList.of(
+val schema1 = NonEmptyList.of(
   ObjectTypeDefinition(
     Name("Query"),
     Nil,
@@ -244,4 +244,129 @@ val schemaDoc = NonEmptyList.of(
       InputValueDefinition(Name("owner"), NamedType(Name("String")), None, Nil)
     )
   )
+)
+
+val schemaStr2 = """
+interface A {
+  a: String
+}
+
+interface WithArgs {
+  a(x: String): Int
+}
+
+interface B implements A {
+  a: String
+  b: String
+}
+
+type C implements A {
+  a: String
+  x: Int
+}
+
+type D implements B & A {
+  a: String,
+  b: String
+}
+
+type E implements WithArgs {
+  a(x: String): Int
+}
+
+type F implements WithArgs {
+  a(x: Int): Int
+}
+
+type G implements A {
+  a: String
+  x: Int!
+}
+
+union U = C | D
+"""
+
+val schema2 = NonEmptyList.of(
+  InterfaceTypeDefinition(
+    Name("A"),
+    Nil,
+    Nil,
+    List(FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil))
+  ),
+  InterfaceTypeDefinition(
+    Name("WithArgs"),
+    Nil,
+    Nil,
+    List(
+      FieldDefinition(
+        Name("a"),
+        List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
+        NamedType(Name("Int")),
+        Nil
+      )
+    )
+  ),
+  InterfaceTypeDefinition(
+    Name("B"),
+    List(NamedType(Name("A"))),
+    Nil,
+    List(
+      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+      FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
+    )
+  ),
+  ObjectTypeDefinition(
+    Name("C"),
+    List(NamedType(Name("A"))),
+    Nil,
+    List(
+      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+      FieldDefinition(Name("x"), Nil, NamedType(Name("Int")), Nil)
+    )
+  ),
+  ObjectTypeDefinition(
+    Name("D"),
+    List(NamedType(Name("B")), NamedType(Name("A"))),
+    Nil,
+    List(
+      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+      FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
+    )
+  ),
+  ObjectTypeDefinition(
+    Name("E"),
+    List(NamedType(Name("WithArgs"))),
+    Nil,
+    List(
+      FieldDefinition(
+        Name("a"),
+        List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
+        NamedType(Name("Int")),
+        Nil
+      )
+    )
+  ),
+  ObjectTypeDefinition(
+    Name("F"),
+    List(NamedType(Name("WithArgs"))),
+    Nil,
+    List(
+      FieldDefinition(
+        Name("a"),
+        List(InputValueDefinition(Name("x"), NamedType(Name("Int")), None, Nil)),
+        NamedType(Name("Int")),
+        Nil
+      )
+    )
+  ),
+  ObjectTypeDefinition(
+    Name("G"),
+    List(NamedType(Name("A"))),
+    Nil,
+    List(
+      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+      FieldDefinition(Name("x"), Nil, NonNullType(NamedType(Name("Int"))), Nil)
+    )
+  ),
+  UnionTypeDefinition(Name("U"), Nil, List(NamedType(Name("C")), NamedType(Name("D"))))
 )
