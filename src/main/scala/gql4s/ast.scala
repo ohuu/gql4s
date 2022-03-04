@@ -5,15 +5,124 @@
 package gql4s
 
 import cats.data.NonEmptyList
+import scala.annotation.tailrec
 
+import OperationType.*
+import Selection.*
 import Type.*
 import Value.*
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
-type Document           = NonEmptyList[Definition]
-type ExecutableDocument = NonEmptyList[ExecutableDefinition]
-type TypeSystemDocument = NonEmptyList[TypeSystemDefinition]
+case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
+  def findFragDef(fragName: Name): Option[FragmentDefinition] =
+    definitions.collect { case f: FragmentDefinition => f }.find(_.name.get == fragName)
+
+  /** Finds unique uses of fragment spreads.
+    *
+    * @return
+    *   A list of fragment spreads which are used in the given document. No duplicates will exist in
+    *   the list.
+    */
+  def findFragSpreads(): List[FragmentSpread] =
+    @tailrec
+    def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
+      accSelectionSet match
+        case Nil => acc
+        case head :: tail =>
+          head match
+            case Field(_, _, _, _, selectionSet)    => recurse(selectionSet ::: tail, acc)
+            case InlineFragment(_, _, selectionSet) => recurse(selectionSet.toList ::: tail, acc)
+            case spread: FragmentSpread =>
+              val acc2 = if acc.contains(spread) then acc else spread :: acc
+              recurse(tail, acc2)
+    end recurse
+
+    definitions
+      .collect { case o: OperationDefinition => o }
+      .map(_.selectionSet.toList)
+      .flatMap(recurse(_, Nil))
+  end findFragSpreads
+end ExecutableDocument
+
+case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
+  def findObjTypeDef(namedType: NamedType): Option[ObjectTypeDefinition] =
+    definitions.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
+
+  def findInterfaceTypeDef(namedType: NamedType): Option[InterfaceTypeDefinition] =
+    definitions.collect { case o: InterfaceTypeDefinition => o }.find(_.name == namedType.name)
+
+  def findObjLikeTypeDef(namedType: NamedType): Option[ObjectLikeTypeDefinition] =
+    definitions.collect { case o: ObjectLikeTypeDefinition => o }.find(_.name == namedType.name)
+
+  def findInputObjTypeDef(name: Name): Option[InputObjectTypeDefinition] =
+    definitions.collect { case o: InputObjectTypeDefinition => o }.find(_.name == name)
+
+  def findTypeDef(namedType: NamedType): Option[TypeDefinition] =
+    namedType match
+      case NamedType(Name("Int"))     => Some(ScalarTypeDefinition(Name("Int"), Nil))
+      case NamedType(Name("Float"))   => Some(ScalarTypeDefinition(Name("Float"), Nil))
+      case NamedType(Name("String"))  => Some(ScalarTypeDefinition(Name("String"), Nil))
+      case NamedType(Name("Boolean")) => Some(ScalarTypeDefinition(Name("Boolean"), Nil))
+      case NamedType(Name("ID"))      => Some(ScalarTypeDefinition(Name("ID"), Nil))
+      case _ => definitions.collect { case t: TypeDefinition => t }.find(_.name == namedType.name)
+
+  /** Checks whether the given field exists within the given type.
+    *
+    * @param fieldName
+    *   The field we're looking for.
+    * @param namedType
+    *   The name of the type to search in.
+    * @param schema
+    *   The graphql schema.
+    * @return
+    *   Some MissingField error if the field cannot be found, None if it can.
+    */
+  def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
+    @tailrec
+    def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
+      namedTypes match
+        case Nil => None
+        case namedType :: tail =>
+          val typeDef = findTypeDef(namedType)
+
+          typeDef match
+            case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
+              val fieldDef = fields.find(_.name == fieldName)
+              if fieldDef.isDefined then fieldDef
+              else recurse(interfaces ::: tail)
+
+            case Some(InterfaceTypeDefinition(_, interfaces, _, fields)) =>
+              val fieldDef = fields.find(_.name == fieldName)
+              if fieldDef.isDefined then fieldDef
+              else recurse(interfaces ::: tail)
+
+            case Some(UnionTypeDefinition(_, _, members)) =>
+              recurse(members ::: tail)
+
+            // The type that we're checking exists but isn't a type with fields
+            // therefore the field can't exist so we just return false
+            case _ => None
+    end recurse
+
+    recurse(List(namedType))
+  end findFieldDef
+
+  def findOpTypeDef(opType: OperationType): Option[ObjectTypeDefinition] =
+    val schemaDef = definitions.collect { case s: SchemaDefinition => s }.headOption
+    schemaDef match
+      case Some(SchemaDefinition(_, roots)) =>
+        roots
+          .find(_.operationType == opType)
+          .map(_.namedType)
+          .flatMap(findObjTypeDef)
+      case None =>
+        opType match
+          case Query        => findObjTypeDef(NamedType(Name("Query")))
+          case Mutation     => findObjTypeDef(NamedType(Name("Mutation")))
+          case Subscription => findObjTypeDef(NamedType(Name("Subscription")))
+  end findOpTypeDef
+end TypeSystemDocument
 
 sealed trait Definition
 sealed trait ExecutableDefinition extends Definition {
@@ -128,13 +237,17 @@ case class FieldDefinition(
 sealed trait HasFields:
   def fields: List[FieldDefinition]
 
+sealed trait HasInterfaces:
+  def interfaces: List[NamedType]
+
 case class ObjectTypeDefinition(
     name: Name,
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
 ) extends TypeDefinition,
-      HasFields
+      HasFields,
+      HasInterfaces
 
 case class ObjectTypeExtension(
     name: Name,
@@ -150,7 +263,8 @@ case class InterfaceTypeDefinition(
     directives: List[Directive],
     fields: List[FieldDefinition]
 ) extends TypeDefinition,
-      HasFields
+      HasFields,
+      HasInterfaces
 
 case class InterfaceTypeExtension(
     name: Name,
@@ -158,6 +272,8 @@ case class InterfaceTypeExtension(
     directives: List[Directive],
     fields: List[FieldDefinition]
 ) extends TypeExtension
+
+type ObjectLikeTypeDefinition = ObjectTypeDefinition | InterfaceTypeDefinition
 
 // Unions
 case class UnionTypeDefinition(

@@ -76,172 +76,174 @@ val schemaStr1 = """
   }
 """
 
-val schema1 = NonEmptyList.of(
-  ObjectTypeDefinition(
-    Name("Query"),
-    Nil,
-    Nil,
-    List(
-      FieldDefinition(Name("dog"), Nil, NamedType(Name("Dog")), Nil),
-      FieldDefinition(
-        Name("multipleRequirements"),
-        List(
-          InputValueDefinition(Name("x"), NonNullType(NamedType(Name("Int"))), None, Nil),
-          InputValueDefinition(Name("y"), NonNullType(NamedType(Name("Int"))), None, Nil)
+val schema1 = TypeSystemDocument(definitions =
+  NonEmptyList.of(
+    ObjectTypeDefinition(
+      Name("Query"),
+      Nil,
+      Nil,
+      List(
+        FieldDefinition(Name("dog"), Nil, NamedType(Name("Dog")), Nil),
+        FieldDefinition(
+          Name("multipleRequirements"),
+          List(
+            InputValueDefinition(Name("x"), NonNullType(NamedType(Name("Int"))), None, Nil),
+            InputValueDefinition(Name("y"), NonNullType(NamedType(Name("Int"))), None, Nil)
+          ),
+          NonNullType(NamedType(Name("Int"))),
+          Nil
         ),
-        NonNullType(NamedType(Name("Int"))),
-        Nil
-      ),
-      FieldDefinition(
-        Name("findDog"),
-        List(InputValueDefinition(Name("complex"), NamedType(Name("ComplexInput")), None, Nil)),
-        NamedType(Name("Dog")),
-        Nil
-      ),
-      FieldDefinition(
-        Name("booleanList"),
-        List(
-          InputValueDefinition(
-            Name("booleanListArg"),
-            ListType(NonNullType(NamedType(Name("Boolean")))),
-            None,
-            Nil
-          )
+        FieldDefinition(
+          Name("findDog"),
+          List(InputValueDefinition(Name("complex"), NamedType(Name("ComplexInput")), None, Nil)),
+          NamedType(Name("Dog")),
+          Nil
         ),
-        NamedType(Name("Boolean")),
-        Nil
+        FieldDefinition(
+          Name("booleanList"),
+          List(
+            InputValueDefinition(
+              Name("booleanListArg"),
+              ListType(NonNullType(NamedType(Name("Boolean")))),
+              None,
+              Nil
+            )
+          ),
+          NamedType(Name("Boolean")),
+          Nil
+        )
       )
-    )
-  ),
-  EnumTypeDefinition(
-    Name("DogCommand"),
-    Nil,
-    List(
-      EnumValueDefinition(EnumValue(Name("SIT")), Nil),
-      EnumValueDefinition(EnumValue(Name("DOWN")), Nil),
-      EnumValueDefinition(EnumValue(Name("HEEL")), Nil)
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("Dog"),
-    List(NamedType(Name("Pet"))),
-    Nil,
-    List(
-      FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
-      FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(Name("barkVolume"), Nil, NamedType(Name("Int")), Nil),
-      FieldDefinition(
-        Name("doesKnowCommand"),
-        List(
-          InputValueDefinition(
-            Name("dogCommand"),
-            NonNullType(NamedType(Name("DogCommand"))),
-            None,
-            Nil
-          )
+    ),
+    EnumTypeDefinition(
+      Name("DogCommand"),
+      Nil,
+      List(
+        EnumValueDefinition(EnumValue(Name("SIT")), Nil),
+        EnumValueDefinition(EnumValue(Name("DOWN")), Nil),
+        EnumValueDefinition(EnumValue(Name("HEEL")), Nil)
+      )
+    ),
+    ObjectTypeDefinition(
+      Name("Dog"),
+      List(NamedType(Name("Pet"))),
+      Nil,
+      List(
+        FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
+        FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(Name("barkVolume"), Nil, NamedType(Name("Int")), Nil),
+        FieldDefinition(
+          Name("doesKnowCommand"),
+          List(
+            InputValueDefinition(
+              Name("dogCommand"),
+              NonNullType(NamedType(Name("DogCommand"))),
+              None,
+              Nil
+            )
+          ),
+          NonNullType(NamedType(Name("Boolean"))),
+          Nil
         ),
-        NonNullType(NamedType(Name("Boolean"))),
-        Nil
-      ),
-      FieldDefinition(
-        Name("isHouseTrained"),
-        List(InputValueDefinition(Name("atOtherHomes"), NamedType(Name("Boolean")), None, Nil)),
-        NonNullType(NamedType(Name("Boolean"))),
-        Nil
-      ),
-      FieldDefinition(Name("owner"), Nil, NamedType(Name("Human")), Nil)
-    )
-  ),
-  InterfaceTypeDefinition(
-    Name("Sentient"),
-    Nil,
-    Nil,
-    List(
-      FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
-      FieldDefinition(Name("thoughts"), Nil, NamedType(Name("String")), Nil)
-    )
-  ),
-  InterfaceTypeDefinition(
-    Name("Pet"),
-    Nil,
-    Nil,
-    List(FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil))
-  ),
-  ObjectTypeDefinition(
-    Name("Alien"),
-    List(NamedType(Name("Sentient"))),
-    Nil,
-    List(
-      FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
-      FieldDefinition(Name("homePlanet"), Nil, NamedType(Name("String")), Nil)
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("Human"),
-    List(NamedType(Name("Sentient"))),
-    Nil,
-    List(
-      FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
-      FieldDefinition(Name("pets"), Nil, ListType(NonNullType(NamedType(Name("Pet")))), Nil)
-    )
-  ),
-  EnumTypeDefinition(
-    Name("CatCommand"),
-    Nil,
-    List(EnumValueDefinition(EnumValue(Name("JUMP")), Nil))
-  ),
-  ObjectTypeDefinition(
-    Name("Cat"),
-    List(NamedType(Name("Pet"))),
-    Nil,
-    List(
-      FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
-      FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(
-        Name("doesKnowCommand"),
-        List(
-          InputValueDefinition(
-            Name("catCommand"),
-            NonNullType(NamedType(Name("CatCommand"))),
-            None,
-            Nil
-          )
+        FieldDefinition(
+          Name("isHouseTrained"),
+          List(InputValueDefinition(Name("atOtherHomes"), NamedType(Name("Boolean")), None, Nil)),
+          NonNullType(NamedType(Name("Boolean"))),
+          Nil
         ),
-        NonNullType(NamedType(Name("Boolean"))),
-        Nil
-      ),
-      FieldDefinition(Name("meowVolume"), Nil, NamedType(Name("Int")), Nil)
-    )
-  ),
-  UnionTypeDefinition(
-    Name("CatOrDog"),
-    Nil,
-    List(NamedType(Name("Cat")), NamedType(Name("Dog")))
-  ),
-  UnionTypeDefinition(
-    Name("DogOrHuman"),
-    Nil,
-    List(NamedType(Name("Dog")), NamedType(Name("Human")))
-  ),
-  UnionTypeDefinition(
-    Name("HumanOrAlien"),
-    Nil,
-    List(NamedType(Name("Human")), NamedType(Name("Alien")))
-  ),
-  InputObjectTypeDefinition(
-    Name("Name"),
-    Nil,
-    List(
-      InputValueDefinition(Name("first"), NamedType(Name("String")), None, Nil),
-      InputValueDefinition(Name("last"), NamedType(Name("String")), None, Nil)
-    )
-  ),
-  InputObjectTypeDefinition(
-    Name("ComplexInput"),
-    Nil,
-    List(
-      InputValueDefinition(Name("name"), NonNullType(NamedType(Name("Name"))), None, Nil),
-      InputValueDefinition(Name("owner"), NamedType(Name("String")), None, Nil)
+        FieldDefinition(Name("owner"), Nil, NamedType(Name("Human")), Nil)
+      )
+    ),
+    InterfaceTypeDefinition(
+      Name("Sentient"),
+      Nil,
+      Nil,
+      List(
+        FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
+        FieldDefinition(Name("thoughts"), Nil, NamedType(Name("String")), Nil)
+      )
+    ),
+    InterfaceTypeDefinition(
+      Name("Pet"),
+      Nil,
+      Nil,
+      List(FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil))
+    ),
+    ObjectTypeDefinition(
+      Name("Alien"),
+      List(NamedType(Name("Sentient"))),
+      Nil,
+      List(
+        FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
+        FieldDefinition(Name("homePlanet"), Nil, NamedType(Name("String")), Nil)
+      )
+    ),
+    ObjectTypeDefinition(
+      Name("Human"),
+      List(NamedType(Name("Sentient"))),
+      Nil,
+      List(
+        FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
+        FieldDefinition(Name("pets"), Nil, ListType(NonNullType(NamedType(Name("Pet")))), Nil)
+      )
+    ),
+    EnumTypeDefinition(
+      Name("CatCommand"),
+      Nil,
+      List(EnumValueDefinition(EnumValue(Name("JUMP")), Nil))
+    ),
+    ObjectTypeDefinition(
+      Name("Cat"),
+      List(NamedType(Name("Pet"))),
+      Nil,
+      List(
+        FieldDefinition(Name("name"), Nil, NonNullType(NamedType(Name("String"))), Nil),
+        FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(
+          Name("doesKnowCommand"),
+          List(
+            InputValueDefinition(
+              Name("catCommand"),
+              NonNullType(NamedType(Name("CatCommand"))),
+              None,
+              Nil
+            )
+          ),
+          NonNullType(NamedType(Name("Boolean"))),
+          Nil
+        ),
+        FieldDefinition(Name("meowVolume"), Nil, NamedType(Name("Int")), Nil)
+      )
+    ),
+    UnionTypeDefinition(
+      Name("CatOrDog"),
+      Nil,
+      List(NamedType(Name("Cat")), NamedType(Name("Dog")))
+    ),
+    UnionTypeDefinition(
+      Name("DogOrHuman"),
+      Nil,
+      List(NamedType(Name("Dog")), NamedType(Name("Human")))
+    ),
+    UnionTypeDefinition(
+      Name("HumanOrAlien"),
+      Nil,
+      List(NamedType(Name("Human")), NamedType(Name("Alien")))
+    ),
+    InputObjectTypeDefinition(
+      Name("Name"),
+      Nil,
+      List(
+        InputValueDefinition(Name("first"), NamedType(Name("String")), None, Nil),
+        InputValueDefinition(Name("last"), NamedType(Name("String")), None, Nil)
+      )
+    ),
+    InputObjectTypeDefinition(
+      Name("ComplexInput"),
+      Nil,
+      List(
+        InputValueDefinition(Name("name"), NonNullType(NamedType(Name("Name"))), None, Nil),
+        InputValueDefinition(Name("owner"), NamedType(Name("String")), None, Nil)
+      )
     )
   )
 )
@@ -286,87 +288,89 @@ type G implements A {
 union U = C | D
 """
 
-val schema2 = NonEmptyList.of(
-  InterfaceTypeDefinition(
-    Name("A"),
-    Nil,
-    Nil,
-    List(FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil))
-  ),
-  InterfaceTypeDefinition(
-    Name("WithArgs"),
-    Nil,
-    Nil,
-    List(
-      FieldDefinition(
-        Name("a"),
-        List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
-        NamedType(Name("Int")),
-        Nil
+val schema2 = TypeSystemDocument(definitions =
+  NonEmptyList.of(
+    InterfaceTypeDefinition(
+      Name("A"),
+      Nil,
+      Nil,
+      List(FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil))
+    ),
+    InterfaceTypeDefinition(
+      Name("WithArgs"),
+      Nil,
+      Nil,
+      List(
+        FieldDefinition(
+          Name("a"),
+          List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
+          NamedType(Name("Int")),
+          Nil
+        )
       )
-    )
-  ),
-  InterfaceTypeDefinition(
-    Name("B"),
-    List(NamedType(Name("A"))),
-    Nil,
-    List(
-      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("C"),
-    List(NamedType(Name("A"))),
-    Nil,
-    List(
-      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(Name("x"), Nil, NamedType(Name("Int")), Nil)
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("D"),
-    List(NamedType(Name("B")), NamedType(Name("A"))),
-    Nil,
-    List(
-      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("E"),
-    List(NamedType(Name("WithArgs"))),
-    Nil,
-    List(
-      FieldDefinition(
-        Name("a"),
-        List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
-        NamedType(Name("Int")),
-        Nil
+    ),
+    InterfaceTypeDefinition(
+      Name("B"),
+      List(NamedType(Name("A"))),
+      Nil,
+      List(
+        FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
       )
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("F"),
-    List(NamedType(Name("WithArgs"))),
-    Nil,
-    List(
-      FieldDefinition(
-        Name("a"),
-        List(InputValueDefinition(Name("x"), NamedType(Name("Int")), None, Nil)),
-        NamedType(Name("Int")),
-        Nil
+    ),
+    ObjectTypeDefinition(
+      Name("C"),
+      List(NamedType(Name("A"))),
+      Nil,
+      List(
+        FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(Name("x"), Nil, NamedType(Name("Int")), Nil)
       )
-    )
-  ),
-  ObjectTypeDefinition(
-    Name("G"),
-    List(NamedType(Name("A"))),
-    Nil,
-    List(
-      FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
-      FieldDefinition(Name("x"), Nil, NonNullType(NamedType(Name("Int"))), Nil)
-    )
-  ),
-  UnionTypeDefinition(Name("U"), Nil, List(NamedType(Name("C")), NamedType(Name("D"))))
+    ),
+    ObjectTypeDefinition(
+      Name("D"),
+      List(NamedType(Name("B")), NamedType(Name("A"))),
+      Nil,
+      List(
+        FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(Name("b"), Nil, NamedType(Name("String")), Nil)
+      )
+    ),
+    ObjectTypeDefinition(
+      Name("E"),
+      List(NamedType(Name("WithArgs"))),
+      Nil,
+      List(
+        FieldDefinition(
+          Name("a"),
+          List(InputValueDefinition(Name("x"), NamedType(Name("String")), None, Nil)),
+          NamedType(Name("Int")),
+          Nil
+        )
+      )
+    ),
+    ObjectTypeDefinition(
+      Name("F"),
+      List(NamedType(Name("WithArgs"))),
+      Nil,
+      List(
+        FieldDefinition(
+          Name("a"),
+          List(InputValueDefinition(Name("x"), NamedType(Name("Int")), None, Nil)),
+          NamedType(Name("Int")),
+          Nil
+        )
+      )
+    ),
+    ObjectTypeDefinition(
+      Name("G"),
+      List(NamedType(Name("A"))),
+      Nil,
+      List(
+        FieldDefinition(Name("a"), Nil, NamedType(Name("String")), Nil),
+        FieldDefinition(Name("x"), Nil, NonNullType(NamedType(Name("Int"))), Nil)
+      )
+    ),
+    UnionTypeDefinition(Name("U"), Nil, List(NamedType(Name("C")), NamedType(Name("D"))))
+  )
 )

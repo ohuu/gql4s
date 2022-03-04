@@ -454,13 +454,13 @@ val directiveDefinition =
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
 val executableDefinition = operationDefinition | fragmentDefinition
-val executableDocument   = __ *> (executableDefinition <* __).rep
+val executableDocument   = __ *> (executableDefinition <* __).rep.map(ExecutableDocument.apply)
 
 val typeSystemDefinition            = schemaDefinition | typeDefinition | directiveDefinition
 val typeSystemExtension             = schemaExtension | typeExtension
 val typeSystemDefinitionOrExtension = typeSystemDefinition | typeSystemExtension
 val typeSystemExtensionDocument     = typeSystemDefinitionOrExtension.rep
-val typeSystemDocument              = __ *> (typeSystemDefinition <* __).rep
+val typeSystemDocument = __ *> (typeSystemDefinition <* __).rep.map(TypeSystemDocument.apply)
 
 val definition = executableDefinition | typeSystemDefinitionOrExtension
 val document   = __ *> (definition <* __).rep
