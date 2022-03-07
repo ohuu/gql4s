@@ -20,6 +20,7 @@ enum GqlError:
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case IllegalType(tpe: Type, message: Option[String] = None)
   case InvalidType(tpe: Type)
+  // TODO: Should I rename this to InvalidReturnType or something
   case InvalidImplementation(tpe: Type)
   case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
   case DuplicateFragmentDefinition(fragName: Name)

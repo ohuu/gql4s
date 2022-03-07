@@ -31,7 +31,7 @@ class DocumentValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1Str) match {
-      case Right(_ -> doc) => assert(validate(doc, schema1).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc1")
     }
 
@@ -52,11 +52,11 @@ class DocumentValidationSuite extends FunSuite:
     executableDocument
       .parse(doc2Str)
       .map { case _ -> doc => doc }
-      .flatMap(validate(_, schema1))
+      .flatMap(validate(_, schemaDoc))
 
     executableDocument.parse(doc2Str) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[DuplicateOperationDefinition])
         val expectedErr = DuplicateOperationDefinition(Name("dogOperation"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -73,7 +73,7 @@ class DocumentValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(validate(doc, schema1).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -93,7 +93,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[AnonymousQueryNotAlone.type])
         val expectedErr = AnonymousQueryNotAlone
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -169,7 +169,7 @@ class DocumentValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -185,7 +185,7 @@ class DocumentValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(validate(doc, schema1).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc2")
 
   }
@@ -201,7 +201,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -217,7 +217,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[IllegalSelection])
         val expectedErr = IllegalSelection(Name("barkVolume"), NamedType(Name("Dog")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -242,7 +242,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -256,7 +256,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs      = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr = errs.find(_.isInstanceOf[MissingArgumentDefinition])
         val expectedErr =
           MissingArgumentDefinition(
@@ -278,7 +278,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc3) match
       case Right(_ -> doc) =>
-        val errs      = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr = errs.find(_.isInstanceOf[DuplicateArgument])
         val expectedErr =
           DuplicateArgument(
@@ -296,7 +296,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc4) match
       case Right(_ -> doc) =>
-        val errs      = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs      = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr = errs.find(_.isInstanceOf[MissingArgument])
         val expectedErr =
           MissingArgument(
@@ -328,7 +328,7 @@ class DocumentValidationSuite extends FunSuite:
       }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -350,7 +350,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[DuplicateFragmentDefinition])
         val expectedErr = DuplicateFragmentDefinition(Name("fragmentOne"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -388,7 +388,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -412,7 +412,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[MissingTypeDefinition])
         val expectedErr = MissingTypeDefinition(NamedType(Name("NotInSchema")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -433,7 +433,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs        = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs        = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[UnusedFragment])
         val expectedErr = UnusedFragment(Name("nameFragment"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -450,7 +450,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[MissingFragmentDefinition])
         val expected = MissingFragmentDefinition(Name("undefinedFragment"))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -478,7 +478,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs   = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs   = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual = errs.filter(_.isInstanceOf[FragmentContainsCycles])
         val expected = List(
           FragmentContainsCycles(Name("nameFragment")),
@@ -514,16 +514,16 @@ class DocumentValidationSuite extends FunSuite:
     """
 
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc2")
 
     executableDocument.parse(doc3) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[MissingField])
         val expected = MissingField(Name("favoriteCookieFlavor"), NamedType(Name("ComplexInput")))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -549,7 +549,7 @@ class DocumentValidationSuite extends FunSuite:
 
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[DuplicateField])
         val expected = DuplicateField(Name("name"))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -557,7 +557,7 @@ class DocumentValidationSuite extends FunSuite:
 
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[DuplicateField])
         val expected = DuplicateField(Name("first"))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -575,7 +575,7 @@ class DocumentValidationSuite extends FunSuite:
 
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[MissingField])
         val expected = MissingField(Name("name"), NamedType(Name("ComplexInput")))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -592,7 +592,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.find(_.isInstanceOf[DuplicateVariable])
         val expected = DuplicateVariable(Name("atOtherHomes"))
         assertEquals(clue(actual), clue(Some(expected)))
@@ -614,7 +614,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc2) match
-      case Right(_ -> doc) => assert(validate(doc, schema1).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc2")
   }
 
@@ -637,7 +637,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(validate(doc, schema1).isRight)
+      case Right(_ -> doc) => assert(validate(doc, schemaDoc).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -660,7 +660,7 @@ class DocumentValidationSuite extends FunSuite:
 
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs   = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs   = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual = errs.filter(_.isInstanceOf[IllegalType])
         val expected =
           List(
@@ -682,7 +682,7 @@ class DocumentValidationSuite extends FunSuite:
     }
     """
     executableDocument.parse(doc1) match
-      case Right(_ -> doc) => assert(clue(validate(doc, schema1)).isRight)
+      case Right(_ -> doc) => assert(clue(validate(doc, schemaDoc)).isRight)
       case _               => fail("failed to parse doc1")
 
     val doc2 = """
@@ -694,7 +694,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc2) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.filter(_.isInstanceOf[MissingVariable])
         val expected = List(MissingVariable(Name("atOtherHomes")))
         assertEquals(clue(actual), clue(expected))
@@ -713,7 +713,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc3) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.filter(_.isInstanceOf[MissingVariable])
         val expected = List(MissingVariable(Name("atOtherHomes")))
         assertEquals(clue(actual), clue(expected))
@@ -730,7 +730,7 @@ class DocumentValidationSuite extends FunSuite:
     """
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
-        val errs     = validate(doc, schema1).swap.map(_.toList).getOrElse(Nil)
+        val errs     = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
         val actual   = errs.filter(_.isInstanceOf[UnusedVariable])
         val expected = List(UnusedVariable(Name("atOtherHomes")))
         assertEquals(clue(actual), clue(expected))
