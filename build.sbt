@@ -24,6 +24,6 @@ lazy val root = project
       "org.typelevel" %% "cats-parse" % catsParseVersion,
       "org.scalameta" %% "munit"      % munitVersion % Test
     ),
-    testFrameworks += new TestFramework("munit.Framework"),
+    // testFrameworks += new TestFramework("munit.Framework"),
     Test / parallelExecution := false
   )

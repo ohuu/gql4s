@@ -113,11 +113,62 @@ object SchemaValidator:
     implErrs ::: fieldErrs
   end isValidImplementation
 
-  def validateObjType(objType: ObjectTypeDefinition): List[GqlError] =
+  def validateObjType(objType: ObjectTypeDefinition, schema: TypeSystemDocument): List[GqlError] =
     // 3.6.1 Object types must define one or more fields
     val missingFieldsErr =
       if objType.fields.isEmpty then Some(MissingFields(NamedType(objType.name)))
       else None
+
+    // 3.6.2.1 Fields must have unique names within the Object type
+    val uniqueFieldErrs =
+      objType.fields
+        .groupBy(_.name)
+        .filter { case (_, fields) => fields.length > 1 }
+        .map { case (name, _) => DuplicateField(name) }
+        .toList
+
+    // 3.6.2.2 Field names must not start with `__`
+    val fieldNameErrs =
+      objType.fields
+        .map(_.name)
+        .filter(_.name.startsWith("__"))
+        .map(IllegalName.apply)
+
+    // 3.6.2.3 Fields must return an output type
+    val fieldTypeErrs =
+      objType.fields
+        .filterNot(f => schema.isOutputType(f.tpe))
+        .map(_.tpe)
+        .map(InvalidType.apply)
+
+    // objType.fields
+    //   .branch(_
+    //       .map(_.name)
+    //       .filter(_.name.startsWith("__"))
+    //       .map(IllegalName.apply)
+    //   )
+    //   .branch(_
+    //     .filterNot(f => schema.isOutputType(f.tpe))
+    //     .map(_.tpe)
+    //     .map(InvalidType.apply)
+    //   )
+    //   .branch(_.flatMap(_.arguments).branch())
+
+    // 3.6.2.4.1
+    val fieldArgNameErrs =
+      objType.fields
+        .flatMap(_.arguments)
+        .map(_.name)
+        .filter(_.name.startsWith("__"))
+        .map(IllegalName.apply)
+
+    // 3.6.2.4.2
+    val fieldArgTypeErrs =
+      objType.fields
+        .flatMap(_.arguments)
+        .filterNot(f => schema.isInputType(f.tpe))
+        .map(_.tpe)
+        .map(InvalidType.apply)
 
     // 3.6.3 An object type may declare that it implements one or more unique interfaces.
     val uniqueInterfacesErrs = objType.interfaces
@@ -127,9 +178,22 @@ object SchemaValidator:
       .map(DuplicateInterface(_))
       .toList
 
-    // Interfaces must be defined
+    // 3.6.4 An object type must be a super-set of all interfaces it implements
+    val validImplErrs = objType.interfaces
+      .map(tpe => tpe -> schema.findInterfaceTypeDef(tpe))
+      .flatMap {
+        case (namedType, None)          => List(MissingTypeDefinition(namedType))
+        case (_, Some(implemedtedType)) => isValidImplementation(objType, implemedtedType, schema)
+      }
 
-    ???
+    missingFieldsErr.toList :::
+      uniqueFieldErrs :::
+      fieldNameErrs :::
+      fieldTypeErrs :::
+      fieldArgNameErrs :::
+      fieldArgTypeErrs :::
+      uniqueInterfacesErrs :::
+      validImplErrs
   end validateObjType
 
   def validate(schema: TypeSystemDocument): Either[List[GqlError], ValidSchema] =

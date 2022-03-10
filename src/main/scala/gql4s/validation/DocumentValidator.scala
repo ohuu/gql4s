@@ -28,13 +28,6 @@ object DocumentValidator:
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // Helper Functions
-  def isLeafType(`type`: Type): Boolean = `type`.name match
-    case Name("Int") | Name("Float") | Name("String") | Name("Boolean") | Name("ID") => true
-    case Name(_)                                                                     => false
-
-  def isInputType(`type`: Type, schema: TypeSystemDocument): Boolean =
-    isLeafType(`type`) || schema.findInputObjTypeDef(`type`.name).isDefined
-
   /** Builds a table of variables required to execute the given fragment definition */
   def findFragDefReqs(
       fragDef: FragmentDefinition,
@@ -459,7 +452,7 @@ object DocumentValidator:
 
     // 5.8.2 variable type must be an input type
     val inputTypeErrs = opDef.variableDefinitions
-      .filter(varDef => !isInputType(varDef.tpe, schema))
+      .filter(varDef => !schema.isInputType(varDef.tpe))
       .map(varDef => IllegalType(varDef.tpe))
 
     // 5.8.3 variable uses defined

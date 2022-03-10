@@ -258,4 +258,139 @@ class SchemaValidatorSuite extends FunSuite:
 
       case _ => fail("failed to parse schemaStr")
   }
+
+  test("Object types must define one or more fields") {
+    val schemaStr = """
+    type A {}
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val errs        = validateObjType(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[MissingFields])
+        val expectedErr = MissingFields(NamedType(Name("A")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Object fields must have unique names within the object") {
+    val schemaStr = """
+    type A {
+      a: Int
+      b: String
+    }
+
+    type B {
+      a: Int
+      a: Int
+    }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val B = schema.findObjTypeDef(NamedType(Name("B"))).get
+
+        val noErrs = validateObjType(A, schema)
+        assertEquals(clue(noErrs), Nil)
+
+        val errs        = validateObjType(B, schema)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateField])
+        val expectedErr = DuplicateField(Name("a"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Field names must not start with `__`") {
+    val schemaStr = """
+    type A {
+      __a: Int
+    }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val errs        = validateObjType(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[IllegalName])
+        val expectedErr = IllegalName(Name("__a"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Object fields must be output types") {
+    val schemaStr = """
+      input InputObj {
+        in: String
+      }
+      type A {
+        a: InputObj
+      }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val errs        = validateObjType(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[InvalidType])
+        val expectedErr = InvalidType(NamedType(Name("InputObj")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Objects may implement one or more unique interfaces") {
+    val schemaStr = """
+      interface A {
+        a: Int
+      }
+      type B implements A & A {
+        a: Int
+      }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val B           = schema.findObjTypeDef(NamedType(Name("B"))).get
+        val errs        = validateObjType(B, schema)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateInterface])
+        val expectedErr = DuplicateInterface(Name("A"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Object field arguments must not start with `__`") {
+    val schemaStr = """
+      type A {
+        a(__x: Int): Int
+      }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
+
+        val errs        = validateObjType(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[IllegalName])
+        val expectedErr = IllegalName(Name("__x"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Object field arguments must be an input type") {
+    val schemaStr = """
+      type Obj {
+        o: Int
+      }
+      type A {
+        a(x: Obj): Int
+      }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
+
+        val errs        = validateObjType(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[InvalidType])
+        val expectedErr = InvalidType(NamedType(Name("Obj")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse schemaStr")
+  }
 end SchemaValidatorSuite

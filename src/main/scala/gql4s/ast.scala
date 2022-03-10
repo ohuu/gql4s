@@ -46,6 +46,34 @@ case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
 end ExecutableDocument
 
 case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
+  def isLeafType(`type`: NamedType): Boolean = `type`.name match
+    case Name("Int") | Name("Float") | Name("String") | Name("Boolean") | Name("ID") => true
+    case Name(_)                                                                     => false
+
+  def isInputType(`type`: Type): Boolean = `type` match
+    case NonNullType(tpe) => isInputType(tpe)
+    case ListType(tpe)    => isInputType(tpe)
+    case tpe: NamedType =>
+      findTypeDef(tpe) match
+        case Some(_: ScalarTypeDefinition)      => true
+        case Some(_: EnumTypeDefinition)        => true
+        case Some(_: InputObjectTypeDefinition) => true
+        case _                                  => isLeafType(tpe)
+  end isInputType
+
+  def isOutputType(`type`: Type): Boolean = `type` match
+    case NonNullType(tpe) => isOutputType(tpe)
+    case ListType(tpe)    => isOutputType(tpe)
+    case tpe: NamedType =>
+      findTypeDef(tpe) match
+        case Some(_: ScalarTypeDefinition)    => true
+        case Some(_: ObjectTypeDefinition)    => true
+        case Some(_: InterfaceTypeDefinition) => true
+        case Some(_: UnionTypeDefinition)     => true
+        case Some(_: EnumTypeDefinition)      => true
+        case _                                => isLeafType(tpe)
+  end isOutputType
+
   def findObjTypeDef(namedType: NamedType): Option[ObjectTypeDefinition] =
     definitions.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
 

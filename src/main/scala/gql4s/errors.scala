@@ -19,6 +19,7 @@ enum GqlError:
   case MissingVariable(varName: Name)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case IllegalType(tpe: Type, message: Option[String] = None)
+  case IllegalName(name: Name)
   case InvalidType(tpe: Type)
   // TODO: Should I rename this to InvalidReturnType or something
   case InvalidImplementation(tpe: Type)
