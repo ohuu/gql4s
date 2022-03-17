@@ -127,7 +127,6 @@ object DocumentValidator:
     else LinkedHashMap.empty
   end buildFragDefDepGraph
 
-  // QUESTION: Maybe change this to a while loop?
   def topologicalSort(graph: FragDefDepsGraph): Either[List[GqlError], FragDefDepsGraph] =
     @tailrec
     def recurse(

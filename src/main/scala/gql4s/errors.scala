@@ -17,6 +17,8 @@ enum GqlError:
   case MissingArgument(argName: Name, fieldName: Name, parentType: NamedType)
   case MissingInputObjectTypeDefinition(typeName: Name)
   case MissingVariable(varName: Name)
+  case MissingUnionMember(tpe: UnionTypeDefinition)
+  case MissingEnumValue(tpe: EnumTypeDefinition)
   case IllegalSelection(fieldName: Name, namedType: NamedType)
   case IllegalType(tpe: Type, message: Option[String] = None)
   case IllegalName(name: Name)
@@ -30,6 +32,7 @@ enum GqlError:
   case DuplicateVariable(varName: Name)
   case DuplicateInterface(interface: Name)
   case FragmentContainsCycles(fragName: Name)
+  case InputObjectContainsCycles(inputObjName: Name)
   case MultipleAnonymousQueries
   case AnonymousQueryNotAlone
   case SubscriptionHasMultipleRoots(subName: Option[Name])
@@ -37,3 +40,4 @@ enum GqlError:
   case UnusedVariable(varName: Name)
   case NonImplementedInterface(interface: NamedType)
   case TypeMismatch(expected: Type, actual: Type)
+  case SelfImplementation(tpe: NamedType)

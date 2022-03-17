@@ -266,7 +266,7 @@ class SchemaValidatorSuite extends FunSuite:
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
         val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
-        val errs        = validateObjType(A, schema)
+        val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[MissingFields])
         val expectedErr = MissingFields(NamedType(Name("A")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -291,10 +291,10 @@ class SchemaValidatorSuite extends FunSuite:
         val A = schema.findObjTypeDef(NamedType(Name("A"))).get
         val B = schema.findObjTypeDef(NamedType(Name("B"))).get
 
-        val noErrs = validateObjType(A, schema)
+        val noErrs = validateObjLike(A, schema)
         assertEquals(clue(noErrs), Nil)
 
-        val errs        = validateObjType(B, schema)
+        val errs        = validateObjLike(B, schema)
         val actualErr   = errs.find(_.isInstanceOf[DuplicateField])
         val expectedErr = DuplicateField(Name("a"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -311,7 +311,7 @@ class SchemaValidatorSuite extends FunSuite:
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
         val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
-        val errs        = validateObjType(A, schema)
+        val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[IllegalName])
         val expectedErr = IllegalName(Name("__a"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -331,7 +331,7 @@ class SchemaValidatorSuite extends FunSuite:
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
         val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
-        val errs        = validateObjType(A, schema)
+        val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[InvalidType])
         val expectedErr = InvalidType(NamedType(Name("InputObj")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -350,7 +350,7 @@ class SchemaValidatorSuite extends FunSuite:
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
         val B           = schema.findObjTypeDef(NamedType(Name("B"))).get
-        val errs        = validateObjType(B, schema)
+        val errs        = validateObjLike(B, schema)
         val actualErr   = errs.find(_.isInstanceOf[DuplicateInterface])
         val expectedErr = DuplicateInterface(Name("A"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -367,7 +367,7 @@ class SchemaValidatorSuite extends FunSuite:
       case Right(_ -> schema) =>
         val A = schema.findObjTypeDef(NamedType(Name("A"))).get
 
-        val errs        = validateObjType(A, schema)
+        val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[IllegalName])
         val expectedErr = IllegalName(Name("__x"))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
@@ -387,7 +387,7 @@ class SchemaValidatorSuite extends FunSuite:
       case Right(_ -> schema) =>
         val A = schema.findObjTypeDef(NamedType(Name("A"))).get
 
-        val errs        = validateObjType(A, schema)
+        val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[InvalidType])
         val expectedErr = InvalidType(NamedType(Name("Obj")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
