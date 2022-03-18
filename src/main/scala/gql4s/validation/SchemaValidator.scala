@@ -191,7 +191,7 @@ object SchemaValidator:
 
     // 3.6.4 An object type must be a super-set of all interfaces it implements
     val validImplErrs = typeDef.interfaces
-      .map(typeDef => typeDef -> schema.findInterfaceTypeDef(typeDef))
+      .map(namedType => namedType -> schema.findInterfaceTypeDef(namedType.n))
       .flatMap {
         case (namedType, None)          => List(MissingTypeDefinition(namedType))
         case (_, Some(implemedtedType)) => isValidImplementation(typeDef, implemedtedType, schema)
@@ -214,6 +214,11 @@ object SchemaValidator:
       if typeDef.unionMemberTypes.isEmpty then List(MissingUnionMember(typeDef))
       else Nil
 
+    val uniqueMemberErrs = typeDef.unionMemberTypes
+      .groupBy(_.n)
+      .collect { case (name, occurances) if occurances.length > 1 => DuplicateInterface(name) }
+      .toList
+
     // 3.8.2 The member types of a Union type must all be Object base types
     val memberTypeErrs = typeDef.unionMemberTypes.flatMap(memberType =>
       schema.findTypeDef(memberType) match
@@ -223,13 +228,22 @@ object SchemaValidator:
           Some(IllegalType(memberType, Some("Only object types can be members of a union")))
     )
 
-    emptyUnionErr ::: memberTypeErrs
+    emptyUnionErr ::: uniqueMemberErrs ::: memberTypeErrs
   end validateUnion
 
   def validateEnum(typeDef: EnumTypeDefinition, schema: TypeSystemDocument): List[GqlError] =
     // 3.9.1 An Enum type must define one or more unique enum values.
-    if typeDef.values.isEmpty then List(MissingEnumValue(typeDef))
-    else Nil
+    val emptyValueErrs =
+      if typeDef.values.isEmpty then List(MissingEnumValue(typeDef))
+      else Nil
+
+    val uniqueValuesErrs = typeDef.values
+      .groupBy(_.value.name)
+      .collect { case (name, occurances) if occurances.length > 1 => DuplicateValue(name) }
+      .toList
+
+    emptyValueErrs ::: uniqueValuesErrs
+  end validateEnum
 
   def validateInputObj(
       typeDef: InputObjectTypeDefinition,

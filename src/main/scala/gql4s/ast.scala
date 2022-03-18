@@ -74,17 +74,23 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
         case _                                => isLeafType(tpe)
   end isOutputType
 
-  def findObjTypeDef(namedType: NamedType): Option[ObjectTypeDefinition] =
-    definitions.collect { case o: ObjectTypeDefinition => o }.find(_.name == namedType.name)
+  def findObjTypeDef(name: Name): Option[ObjectTypeDefinition] =
+    definitions.collect { case o: ObjectTypeDefinition => o }.find(_.name == name)
 
-  def findInterfaceTypeDef(namedType: NamedType): Option[InterfaceTypeDefinition] =
-    definitions.collect { case o: InterfaceTypeDefinition => o }.find(_.name == namedType.name)
+  def findInterfaceTypeDef(name: Name): Option[InterfaceTypeDefinition] =
+    definitions.collect { case o: InterfaceTypeDefinition => o }.find(_.name == name)
 
-  def findObjLikeTypeDef(namedType: NamedType): Option[ObjectLikeTypeDefinition] =
-    definitions.collect { case o: ObjectLikeTypeDefinition => o }.find(_.name == namedType.name)
+  def findObjLikeTypeDef(name: Name): Option[ObjectLikeTypeDefinition] =
+    definitions.collect { case o: ObjectLikeTypeDefinition => o }.find(_.name == name)
 
   def findInputObjTypeDef(name: Name): Option[InputObjectTypeDefinition] =
     definitions.collect { case o: InputObjectTypeDefinition => o }.find(_.name == name)
+
+  def findUnionTypeDef(name: Name): Option[UnionTypeDefinition] =
+    definitions.collect { case o: UnionTypeDefinition => o }.find(_.name == name)
+
+  def findEnumTypeDef(name: Name): Option[EnumTypeDefinition] =
+    definitions.collect { case o: EnumTypeDefinition => o }.find(_.name == name)
 
   def findTypeDef(namedType: NamedType): Option[TypeDefinition] =
     namedType match
@@ -142,13 +148,13 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
       case Some(SchemaDefinition(_, roots)) =>
         roots
           .find(_.operationType == opType)
-          .map(_.namedType)
+          .map(_.namedType.name)
           .flatMap(findObjTypeDef)
       case None =>
         opType match
-          case Query        => findObjTypeDef(NamedType(Name("Query")))
-          case Mutation     => findObjTypeDef(NamedType(Name("Mutation")))
-          case Subscription => findObjTypeDef(NamedType(Name("Subscription")))
+          case Query        => findObjTypeDef(Name("Query"))
+          case Mutation     => findObjTypeDef(Name("Mutation"))
+          case Subscription => findObjTypeDef(Name("Subscription"))
   end findOpTypeDef
 end TypeSystemDocument
 

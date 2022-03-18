@@ -31,6 +31,7 @@ enum GqlError:
   case DuplicateField(fieldName: Name)
   case DuplicateVariable(varName: Name)
   case DuplicateInterface(interface: Name)
+  case DuplicateValue(value: Name)
   case FragmentContainsCycles(fragName: Name)
   case InputObjectContainsCycles(inputObjName: Name)
   case MultipleAnonymousQueries

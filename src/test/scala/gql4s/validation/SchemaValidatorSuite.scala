@@ -17,10 +17,9 @@ class SchemaValidatorSuite extends FunSuite:
       a: Int
     }
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A    = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
+        val A    = schema.findInterfaceTypeDef(Name("A")).get
         val errs = isValidImplementation(A, A, schema)
         assertEquals(clue(errs), Nil)
       case _ => fail("failed to parse schemaStr")
@@ -43,12 +42,11 @@ class SchemaValidatorSuite extends FunSuite:
       c: Int
     }
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val B = schema.findInterfaceTypeDef(NamedType(Name("B"))).get
-        val C = schema.findInterfaceTypeDef(NamedType(Name("C"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val B = schema.findInterfaceTypeDef(Name("B")).get
+        val C = schema.findInterfaceTypeDef(Name("C")).get
 
         val noErrs = isValidImplementation(B, A, schema)
         assertEquals(clue(noErrs), Nil)
@@ -76,12 +74,11 @@ class SchemaValidatorSuite extends FunSuite:
       a: Int
     }
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val B = schema.findInterfaceTypeDef(NamedType(Name("B"))).get
-        val C = schema.findInterfaceTypeDef(NamedType(Name("C"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val B = schema.findInterfaceTypeDef(Name("B")).get
+        val C = schema.findInterfaceTypeDef(Name("C")).get
 
         val noErrs = isValidImplementation(B, A, schema)
         assertEquals(clue(noErrs), Nil)
@@ -126,13 +123,12 @@ class SchemaValidatorSuite extends FunSuite:
     }
     union U = V | W
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val C = schema.findInterfaceTypeDef(NamedType(Name("C"))).get
-        val X = schema.findInterfaceTypeDef(NamedType(Name("X"))).get
-        val Y = schema.findObjLikeTypeDef(NamedType(Name("Y"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val C = schema.findInterfaceTypeDef(Name("C")).get
+        val X = schema.findInterfaceTypeDef(Name("X")).get
+        val Y = schema.findObjLikeTypeDef(Name("Y")).get
 
         val noErrs = isValidImplementation(Y, X, schema)
         assertEquals(clue(noErrs), Nil)
@@ -167,14 +163,13 @@ class SchemaValidatorSuite extends FunSuite:
       a(x: String): String
     }
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val B = schema.findInterfaceTypeDef(NamedType(Name("B"))).get
-        val C = schema.findInterfaceTypeDef(NamedType(Name("C"))).get
-        val D = schema.findInterfaceTypeDef(NamedType(Name("D"))).get
-        val E = schema.findInterfaceTypeDef(NamedType(Name("E"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val B = schema.findInterfaceTypeDef(Name("B")).get
+        val C = schema.findInterfaceTypeDef(Name("C")).get
+        val D = schema.findInterfaceTypeDef(Name("D")).get
+        val E = schema.findInterfaceTypeDef(Name("E")).get
 
         val noErrs1 = isValidImplementation(B, A, schema)
         assertEquals(clue(noErrs1), Nil)
@@ -215,12 +210,11 @@ class SchemaValidatorSuite extends FunSuite:
       b(x: Int, y: Boolean!): Int
     }
     """
-
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val B = schema.findInterfaceTypeDef(NamedType(Name("B"))).get
-        val C = schema.findInterfaceTypeDef(NamedType(Name("C"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val B = schema.findInterfaceTypeDef(Name("B")).get
+        val C = schema.findInterfaceTypeDef(Name("C")).get
 
         val noErrs = isValidImplementation(B, A, schema)
         assertEquals(clue(noErrs), Nil)
@@ -250,8 +244,8 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findInterfaceTypeDef(NamedType(Name("A"))).get
-        val B = schema.findInterfaceTypeDef(NamedType(Name("B"))).get
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+        val B = schema.findInterfaceTypeDef(Name("B")).get
 
         val noErrs = isValidImplementation(B, A, schema)
         assertEquals(clue(noErrs), Nil)
@@ -265,7 +259,7 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val A           = schema.findObjTypeDef(Name("A")).get
         val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[MissingFields])
         val expectedErr = MissingFields(NamedType(Name("A")))
@@ -288,8 +282,8 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
-        val B = schema.findObjTypeDef(NamedType(Name("B"))).get
+        val A = schema.findObjTypeDef(Name("A")).get
+        val B = schema.findObjTypeDef(Name("B")).get
 
         val noErrs = validateObjLike(A, schema)
         assertEquals(clue(noErrs), Nil)
@@ -310,7 +304,7 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val A           = schema.findObjTypeDef(Name("A")).get
         val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[IllegalName])
         val expectedErr = IllegalName(Name("__a"))
@@ -330,7 +324,7 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A           = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val A           = schema.findObjTypeDef(Name("A")).get
         val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[InvalidType])
         val expectedErr = InvalidType(NamedType(Name("InputObj")))
@@ -349,7 +343,7 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val B           = schema.findObjTypeDef(NamedType(Name("B"))).get
+        val B           = schema.findObjTypeDef(Name("B")).get
         val errs        = validateObjLike(B, schema)
         val actualErr   = errs.find(_.isInstanceOf[DuplicateInterface])
         val expectedErr = DuplicateInterface(Name("A"))
@@ -365,7 +359,7 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val A = schema.findObjTypeDef(Name("A")).get
 
         val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[IllegalName])
@@ -385,12 +379,75 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        val A = schema.findObjTypeDef(NamedType(Name("A"))).get
+        val A = schema.findObjTypeDef(Name("A")).get
 
         val errs        = validateObjLike(A, schema)
         val actualErr   = errs.find(_.isInstanceOf[InvalidType])
         val expectedErr = InvalidType(NamedType(Name("Obj")))
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("An interface must not implement itself") {
+    val schemaStr = """
+    interface A implements A {
+      a: Int!
+    }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val A = schema.findInterfaceTypeDef(Name("A")).get
+
+        val errs        = validateObjLike(A, schema)
+        val actualErr   = errs.find(_.isInstanceOf[SelfImplementation])
+        val expectedErr = SelfImplementation(NamedType(Name("A")))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("A union must include one or more unique member types") {
+    val schemaStr = """
+    type A {
+      a: Int!
+    }
+    type B {
+      b: String
+    }
+    union C = A | B
+    union D = A | A
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val C = schema.findUnionTypeDef(Name("C")).get
+        val D = schema.findUnionTypeDef(Name("D")).get
+
+        val noErrs = validateUnion(C, schema)
+        assertEquals(clue(noErrs), Nil)
+
+        val errs        = validateUnion(D, schema)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateInterface])
+        val expectedErr = DuplicateInterface(Name("A"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
+      case _ => fail("failed to parse schemaStr")
+  }
+
+  test("Enums must include one or more unique values") {
+    val schemaStr = """
+    enum Planets {
+      MARS
+      MARS
+    }
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val planets     = schema.findEnumTypeDef(Name("Planets")).get
+        val errs        = validateEnum(planets, schema)
+        val actualErr   = errs.find(_.isInstanceOf[DuplicateValue])
+        val expectedErr = DuplicateValue(Name("MARS"))
+        assertEquals(clue(actualErr), clue(Some(expectedErr)))
+
       case _ => fail("failed to parse schemaStr")
   }
 end SchemaValidatorSuite
