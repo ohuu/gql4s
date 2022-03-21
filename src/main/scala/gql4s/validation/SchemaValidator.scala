@@ -7,9 +7,31 @@ package validation
 
 import GqlError.*
 import Type.*
+import cats.implicits.*
 import scala.annotation.tailrec
+import scala.collection.mutable.LinkedHashMap
 
 object SchemaValidator:
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // Helper functions
+  def buildInputObjDepGraph(
+      schema: TypeSystemDocument
+  ): DependencyGraph[InputObjectTypeDefinition] =
+    LinkedHashMap.from(
+      schema
+        .getTypeDef[InputObjectTypeDefinition]
+        .map(inObj =>
+          inObj -> inObj.fieldsDef
+            .map(_.tpe.name)
+            .flatMap(schema.findTypeDef[InputObjectTypeDefinition])
+            .map(_.name)
+            .toSet
+        )
+    )
+  end buildInputObjDepGraph
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // Validators
   case class ValidSchema(
       schema: TypeSystemDocument,
       objTypes: Map[ObjectTypeDefinition, Set[InterfaceTypeDefinition]]
@@ -33,8 +55,8 @@ object SchemaValidator:
       case (ListType(a), ListType(b))       => isValidImplementationFieldType(a, b, schema)
       case (ListType(a), b)                 => Some(InvalidImplementation(a))
       case (a: NamedType, b: NamedType) =>
-        val aTypeDef = schema.findTypeDef(a)
-        val bTypeDef = schema.findTypeDef(b)
+        val aTypeDef = schema.findTypeDef[TypeDefinition](a.name)
+        val bTypeDef = schema.findTypeDef[TypeDefinition](b.name)
 
         (aTypeDef, bTypeDef) match
           case (Some(a), Some(b)) if a.name == b.name => None
@@ -191,7 +213,7 @@ object SchemaValidator:
 
     // 3.6.4 An object type must be a super-set of all interfaces it implements
     val validImplErrs = typeDef.interfaces
-      .map(namedType => namedType -> schema.findInterfaceTypeDef(namedType.n))
+      .map(namedType => namedType -> schema.findTypeDef[InterfaceTypeDefinition](namedType.n))
       .flatMap {
         case (namedType, None)          => List(MissingTypeDefinition(namedType))
         case (_, Some(implemedtedType)) => isValidImplementation(typeDef, implemedtedType, schema)
@@ -221,7 +243,7 @@ object SchemaValidator:
 
     // 3.8.2 The member types of a Union type must all be Object base types
     val memberTypeErrs = typeDef.unionMemberTypes.flatMap(memberType =>
-      schema.findTypeDef(memberType) match
+      schema.findTypeDef[TypeDefinition](memberType.name) match
         case None                          => Some(MissingTypeDefinition(memberType))
         case Some(_: ObjectTypeDefinition) => None
         case Some(_) =>
@@ -276,36 +298,11 @@ object SchemaValidator:
         .map(_.tpe)
         .map(InvalidType.apply)
 
-    val children = typeDef.fieldsDef
-      .map(_.tpe)
-      .collect { case o: NonNullType => o }
-      .map(_.tpe.name)
-      .flatMap(schema.findInputObjTypeDef)
-    val circularRefErrs = inputObjContainsCircularRef(typeDef, children, schema)
-
-    fieldCountErr ::: uniqueFieldErrs ::: fieldNameErrs ::: fieldTypeErrs ::: circularRefErrs.toList
+    fieldCountErr ::: uniqueFieldErrs ::: fieldNameErrs ::: fieldTypeErrs
   end validateInputObj
 
-  @tailrec
-  def inputObjContainsCircularRef(
-      a: InputObjectTypeDefinition,
-      xs: List[InputObjectTypeDefinition],
-      schema: TypeSystemDocument
-  ): Option[GqlError] = xs match
-    case Nil => None
-    case x :: tail =>
-      if a.name == x.name then Some(InputObjectContainsCycles(a.name))
-      else
-        val children = x.fieldsDef
-          .map(_.tpe)
-          .collect { case o: NonNullType => o }
-          .map(_.tpe.name)
-          .flatMap(schema.findInputObjTypeDef)
-        inputObjContainsCircularRef(a, xs ::: children, schema)
-  end inputObjContainsCircularRef
-
   def validate(schema: TypeSystemDocument): Either[List[GqlError], ValidSchema] =
-    val errors = schema.definitions.toList.flatMap {
+    val typeDefErrs = schema.definitions.toList.flatMap {
       case typeDef: ObjectLikeTypeDefinition  => validateObjLike(typeDef, schema)
       case typeDef: UnionTypeDefinition       => validateUnion(typeDef, schema)
       case typeDef: EnumTypeDefinition        => validateEnum(typeDef, schema)
@@ -313,5 +310,13 @@ object SchemaValidator:
       case _                                  => Nil
     }
 
-    ???
+    // 3.10.3 If an Input Object references itself either directly or through referenced Input
+    //        Objects, at least one of the fields in the chain of references must be either a
+    //        nullable or a List type.
+    val circularRefErrs = containsCycles(buildInputObjDepGraph(schema))
+
+    typeDefErrs ::: circularRefErrs match
+      case Nil  => ???
+      case errs => errs.asLeft
+  end validate
 end SchemaValidator

@@ -42,3 +42,4 @@ enum GqlError:
   case NonImplementedInterface(interface: NamedType)
   case TypeMismatch(expected: Type, actual: Type)
   case SelfImplementation(tpe: NamedType)
+  case ContainsCycles(name: Name)

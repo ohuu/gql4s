@@ -156,7 +156,7 @@ val fragmentName  = (!string("on")).with1 *> name
 val fragmentDefinition =
   ((fragment ~ __) *> (fragmentName <* __) ~ (typeCondition <* __) ~ (directives0 <* __) ~ selectionSet)
     .map { case name -> typeCondition -> directives -> selectionSet =>
-      FragmentDefinition(Some(name), typeCondition, directives, selectionSet)
+      FragmentDefinition(name, typeCondition, directives, selectionSet)
     }
 val fragmentSpread = (string("...") ~ __ *> (fragmentName <* __) ~ directives0).map {
   case name -> directives => FragmentSpread(name, directives)

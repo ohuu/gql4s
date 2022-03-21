@@ -23,8 +23,8 @@ object DocumentValidator:
   type FragDefReqsTable = Map[Name, Set[Variable]]
 
   /** A mapping from fragment defintion to its dependencies */
-  type FragDefDepsGraph =
-    LinkedHashMap[FragmentDefinition, Set[Name]] // maintains insertion order 👍
+  // type FragDefDepsGraph =
+  //   LinkedHashMap[FragmentDefinition, Set[Name]] // maintains insertion order 👍
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // Helper Functions
@@ -66,13 +66,13 @@ object DocumentValidator:
                   recurse(tail, accReqs)
 
                 case Some(fragDef) =>
-                  recurse(tail, accReqs + (fragDef.name.get -> depReqs(fragDef.name.get)))
+                  recurse(tail, accReqs + (fragDef.name -> depReqs(fragDef.name)))
           end match
       end match
     end recurse
 
-    val selectionSet           = fragDef.selectionSet.toList.map(fragDef.name.get -> _)
-    val reqs: FragDefReqsTable = Map(fragDef.name.get -> Set.empty)
+    val selectionSet           = fragDef.selectionSet.toList.map(fragDef.name -> _)
+    val reqs: FragDefReqsTable = Map(fragDef.name -> Set.empty)
     recurse(selectionSet, reqs)
   end findFragDefReqs
 
@@ -105,7 +105,9 @@ object DocumentValidator:
     recurse(opDef.selectionSet.toList)
   end findOpDefReqs
 
-  def buildFragDefDepGraph(fragDefs: List[FragmentDefinition]): FragDefDepsGraph =
+  def buildFragDefDepGraph(
+      fragDefs: List[FragmentDefinition]
+  ): DependencyGraph[FragmentDefinition] =
     @tailrec
     def recurse(accSelectionSet: List[Selection], accDeps: Set[Name] = Set.empty): Set[Name] =
       accSelectionSet match
@@ -127,33 +129,6 @@ object DocumentValidator:
     else LinkedHashMap.empty
   end buildFragDefDepGraph
 
-  def topologicalSort(graph: FragDefDepsGraph): Either[List[GqlError], FragDefDepsGraph] =
-    @tailrec
-    def recurse(
-        graph: FragDefDepsGraph,
-        ordering: FragDefDepsGraph = LinkedHashMap.empty
-    ): Either[List[GqlError], FragDefDepsGraph] =
-      if graph.isEmpty then ordering.asRight
-      else
-        // find a node with zero inputs
-        val zeroDegree =
-          graph
-            .find((fragDef, _) => graph.find((_, deps) => deps.contains(fragDef.name.get)).isEmpty)
-
-        zeroDegree match
-          // 5.5.2.2 Fragment definitions must not contain cycles
-          case None =>
-            graph.map((fragDef, _) => FragmentContainsCycles(fragDef.name.get)).toList.asLeft
-          case Some(zeroDegree @ (zeroDegreeFragDef, _)) =>
-            recurse(
-              graph.filter((fragDef, _) => fragDef != zeroDegreeFragDef),
-              ordering += zeroDegree
-            )
-    end recurse
-
-    recurse(graph)
-  end topologicalSort
-
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // Validators
 
@@ -168,7 +143,7 @@ object DocumentValidator:
       frag match
         case InlineFragment(_, _, selects) => selects.length == 1
         case FragmentSpread(name, _) =>
-          fragDefs.find(_.name.get == name) match
+          fragDefs.find(_.name == name) match
             case None       => false
             case Some(frag) => frag.selectionSet.length == 1
     end hasSingleRoot
@@ -204,7 +179,7 @@ object DocumentValidator:
       namedType: NamedType,
       schema: TypeSystemDocument
   ): List[GqlError] =
-    schema.findTypeDef(namedType) match
+    schema.findTypeDef[TypeDefinition](namedType.n) match
       case Some(_: ObjectTypeDefinition | _: InterfaceTypeDefinition | _: UnionTypeDefinition) =>
         Nil
       case Some(typeDef) => IllegalType(NamedType(typeDef.name)) :: Nil
@@ -241,7 +216,7 @@ object DocumentValidator:
           inObjTypeDef.fieldsDef.find(_.name == name) match
             case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: errs)
             case Some(inValDef) =>
-              schema.findInputObjTypeDef(inValDef.tpe.name) match
+              schema.findTypeDef[InputObjectTypeDefinition](inValDef.tpe.name) match
                 case None =>
                   recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: errs)
                 case Some(inObjTypeDef) =>
@@ -271,7 +246,7 @@ object DocumentValidator:
       .map { case (name, _) => DuplicateField(name) }
       .toList
 
-    schema.findInputObjTypeDef(inValDef.tpe.name) match
+    schema.findTypeDef[InputObjectTypeDefinition](inValDef.tpe.name) match
       case None => MissingInputObjectTypeDefinition(inValDef.tpe.name) :: duplicateErrs
       case Some(inObjTypeDef) =>
         // 5.6.4 input objects required fields
@@ -385,7 +360,7 @@ object DocumentValidator:
                   val errors  = argErrs ::: accErrs
 
                   val fieldType: NamedType = NamedType(fieldDef.tpe.name)
-                  schema.findTypeDef(fieldType) match
+                  schema.findTypeDef[TypeDefinition](fieldType.n) match
                     case None => recurse(tail, MissingTypeDefinition(fieldType) :: errors)
 
                     // We found it but it's a leaf type so we can't recurse into its children,
@@ -527,11 +502,11 @@ object DocumentValidator:
         val uniquenessErrs = fragDefs
           .groupBy(_.name)
           .filter { case _ -> xs => xs.length > 1 }
-          .map { case Some(name) -> _ => DuplicateFragmentDefinition(name) }
+          .map { case (name, _) => DuplicateFragmentDefinition(name) }
           .toList
 
         // 5.5.1.4 Fragment definitions must be used
-        val fragDefNames = fragDefs.map(_.name.get)
+        val fragDefNames = fragDefs.map(_.name)
         val fragSpreads  = doc.findFragSpreads().map(_.name)
         val unusedErrs = fragDefNames
           .filterNot(fragSpreads.contains)
@@ -541,7 +516,7 @@ object DocumentValidator:
         val missingFragDefErrs = sortedGraph
           .flatMap((name, deps) =>
             deps.flatMap(depName =>
-              if sortedGraph.exists((fragDef, _) => fragDef.name.get == depName) then None
+              if sortedGraph.exists((fragDef, _) => fragDef.name == depName) then None
               else Some(MissingFragmentDefinition(depName))
             )
           )

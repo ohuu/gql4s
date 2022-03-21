@@ -11,12 +11,22 @@ import OperationType.*
 import Selection.*
 import Type.*
 import Value.*
+import scala.reflect.TypeTest
+
+sealed trait HasName:
+  def name: Name
+
+sealed trait HasFields:
+  def fields: List[FieldDefinition]
+
+sealed trait HasInterfaces:
+  def interfaces: List[NamedType]
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
 case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
   def findFragDef(fragName: Name): Option[FragmentDefinition] =
-    definitions.collect { case f: FragmentDefinition => f }.find(_.name.get == fragName)
+    definitions.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
 
   /** Finds unique uses of fragment spreads.
     *
@@ -46,60 +56,47 @@ case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
 end ExecutableDocument
 
 case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
-  def isLeafType(`type`: NamedType): Boolean = `type`.name match
-    case Name("Int") | Name("Float") | Name("String") | Name("Boolean") | Name("ID") => true
-    case Name(_)                                                                     => false
+  val scalarDefs = List(
+    ScalarTypeDefinition(Name("Int"), Nil),
+    ScalarTypeDefinition(Name("Float"), Nil),
+    ScalarTypeDefinition(Name("String"), Nil),
+    ScalarTypeDefinition(Name("Boolean"), Nil),
+    ScalarTypeDefinition(Name("ID"), Nil)
+  )
+
+  def isLeafType(name: Name): Boolean = name.name match
+    case "Int" | "Float" | "String" | "Boolean" | "ID" => true
+    case _                                             => false
 
   def isInputType(`type`: Type): Boolean = `type` match
     case NonNullType(tpe) => isInputType(tpe)
     case ListType(tpe)    => isInputType(tpe)
-    case tpe: NamedType =>
-      findTypeDef(tpe) match
+    case NamedType(name) =>
+      findTypeDef[TypeDefinition](name) match
         case Some(_: ScalarTypeDefinition)      => true
         case Some(_: EnumTypeDefinition)        => true
         case Some(_: InputObjectTypeDefinition) => true
-        case _                                  => isLeafType(tpe)
+        case _                                  => isLeafType(name)
   end isInputType
 
   def isOutputType(`type`: Type): Boolean = `type` match
     case NonNullType(tpe) => isOutputType(tpe)
     case ListType(tpe)    => isOutputType(tpe)
-    case tpe: NamedType =>
-      findTypeDef(tpe) match
+    case NamedType(name) =>
+      findTypeDef[TypeDefinition](name) match
         case Some(_: ScalarTypeDefinition)    => true
         case Some(_: ObjectTypeDefinition)    => true
         case Some(_: InterfaceTypeDefinition) => true
         case Some(_: UnionTypeDefinition)     => true
         case Some(_: EnumTypeDefinition)      => true
-        case _                                => isLeafType(tpe)
+        case _                                => isLeafType(name)
   end isOutputType
 
-  def findObjTypeDef(name: Name): Option[ObjectTypeDefinition] =
-    definitions.collect { case o: ObjectTypeDefinition => o }.find(_.name == name)
+  def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
+    (definitions ++ scalarDefs).collect { case t: T => t }.find(_.name == name)
 
-  def findInterfaceTypeDef(name: Name): Option[InterfaceTypeDefinition] =
-    definitions.collect { case o: InterfaceTypeDefinition => o }.find(_.name == name)
-
-  def findObjLikeTypeDef(name: Name): Option[ObjectLikeTypeDefinition] =
-    definitions.collect { case o: ObjectLikeTypeDefinition => o }.find(_.name == name)
-
-  def findInputObjTypeDef(name: Name): Option[InputObjectTypeDefinition] =
-    definitions.collect { case o: InputObjectTypeDefinition => o }.find(_.name == name)
-
-  def findUnionTypeDef(name: Name): Option[UnionTypeDefinition] =
-    definitions.collect { case o: UnionTypeDefinition => o }.find(_.name == name)
-
-  def findEnumTypeDef(name: Name): Option[EnumTypeDefinition] =
-    definitions.collect { case o: EnumTypeDefinition => o }.find(_.name == name)
-
-  def findTypeDef(namedType: NamedType): Option[TypeDefinition] =
-    namedType match
-      case NamedType(Name("Int"))     => Some(ScalarTypeDefinition(Name("Int"), Nil))
-      case NamedType(Name("Float"))   => Some(ScalarTypeDefinition(Name("Float"), Nil))
-      case NamedType(Name("String"))  => Some(ScalarTypeDefinition(Name("String"), Nil))
-      case NamedType(Name("Boolean")) => Some(ScalarTypeDefinition(Name("Boolean"), Nil))
-      case NamedType(Name("ID"))      => Some(ScalarTypeDefinition(Name("ID"), Nil))
-      case _ => definitions.collect { case t: TypeDefinition => t }.find(_.name == namedType.name)
+  def getTypeDef[T](using TypeTest[Any, T]): List[T] =
+    (definitions ++ scalarDefs).collect { case t: T => t }
 
   /** Checks whether the given field exists within the given type.
     *
@@ -118,7 +115,7 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
       namedTypes match
         case Nil => None
         case namedType :: tail =>
-          val typeDef = findTypeDef(namedType)
+          val typeDef = findTypeDef[TypeDefinition](namedType.name)
 
           typeDef match
             case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
@@ -149,19 +146,17 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
         roots
           .find(_.operationType == opType)
           .map(_.namedType.name)
-          .flatMap(findObjTypeDef)
+          .flatMap(findTypeDef[ObjectTypeDefinition])
       case None =>
         opType match
-          case Query        => findObjTypeDef(Name("Query"))
-          case Mutation     => findObjTypeDef(Name("Mutation"))
-          case Subscription => findObjTypeDef(Name("Subscription"))
+          case Query        => findTypeDef[ObjectTypeDefinition](Name("Query"))
+          case Mutation     => findTypeDef[ObjectTypeDefinition](Name("Mutation"))
+          case Subscription => findTypeDef[ObjectTypeDefinition](Name("Subscription"))
   end findOpTypeDef
 end TypeSystemDocument
 
 sealed trait Definition
-sealed trait ExecutableDefinition extends Definition {
-  def name: Option[Name]
-}
+sealed trait ExecutableDefinition extends Definition
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Queries
@@ -195,11 +190,12 @@ case class Directive(name: Name, arguments: List[Argument])
 
 // Fragments
 case class FragmentDefinition(
-    override val name: Some[Name],
+    override val name: Name,
     on: NamedType,
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
-) extends ExecutableDefinition
+) extends ExecutableDefinition,
+      HasName
 
 type SelectionSet = List[Selection]
 enum Selection:
@@ -223,7 +219,7 @@ enum OperationType:
 
 case class OperationDefinition(
     operationType: OperationType,
-    override val name: Option[Name],
+    name: Option[Name],
     variableDefinitions: List[VariableDefinition],
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
@@ -235,9 +231,8 @@ sealed trait TypeSystemDefinition            extends Definition
 sealed trait TypeSystemExtension             extends Definition
 sealed trait TypeSystemDefinitionOrExtension extends Definition
 
-sealed trait TypeDefinition extends TypeSystemDefinition:
-  def name: Name
-sealed trait TypeExtension extends TypeSystemExtension
+sealed trait TypeDefinition extends TypeSystemDefinition, HasName
+sealed trait TypeExtension  extends TypeSystemExtension, HasName
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
 
@@ -260,19 +255,13 @@ case class InputValueDefinition(
     tpe: Type,
     defaultValue: Option[Value],
     directives: List[Directive]
-)
+) extends HasName
 case class FieldDefinition(
     name: Name,
     arguments: List[InputValueDefinition],
     tpe: Type,
     directives: List[Directive]
-)
-
-sealed trait HasFields:
-  def fields: List[FieldDefinition]
-
-sealed trait HasInterfaces:
-  def interfaces: List[NamedType]
+) extends HasName
 
 case class ObjectTypeDefinition(
     name: Name,

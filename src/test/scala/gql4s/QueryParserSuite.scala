@@ -213,7 +213,7 @@ class QueryParserSuite extends FunSuite:
         ...standardProfilePic
       }"""
     val fragmentDefinition0Res = FragmentDefinition(
-      Some(Name("friendFields")),
+      Name("friendFields"),
       NamedType(Name("User")),
       Nil,
       NonEmptyList(
@@ -234,7 +234,7 @@ class QueryParserSuite extends FunSuite:
         }
       }"""
     val fragment1DefinitionRes = FragmentDefinition(
-      Some(Name("friendFields")),
+      Name("friendFields"),
       NamedType(Name("User")),
       Nil,
       NonEmptyList(

@@ -479,10 +479,10 @@ class DocumentValidationSuite extends FunSuite:
     executableDocument.parse(doc1) match
       case Right(_ -> doc) =>
         val errs   = validate(doc, schemaDoc).swap.map(_.toList).getOrElse(Nil)
-        val actual = errs.filter(_.isInstanceOf[FragmentContainsCycles])
+        val actual = errs.filter(_.isInstanceOf[ContainsCycles])
         val expected = List(
-          FragmentContainsCycles(Name("nameFragment")),
-          FragmentContainsCycles(Name("barkVolumeFragment"))
+          ContainsCycles(Name("nameFragment")),
+          ContainsCycles(Name("barkVolumeFragment"))
         )
         assertEquals(clue(actual), clue(expected))
       case _ => fail("failed to parse doc")
