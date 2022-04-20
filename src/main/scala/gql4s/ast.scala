@@ -13,11 +13,16 @@ import Type.*
 import Value.*
 import scala.reflect.TypeTest
 
+sealed trait HasType:
+  def `type`: Type
 sealed trait HasName:
   def name: Name
 
 sealed trait HasFields:
   def fields: List[FieldDefinition]
+
+sealed trait HasArgs:
+  def arguments: List[InputValueDefinition]
 
 sealed trait HasInterfaces:
   def interfaces: List[NamedType]
@@ -64,7 +69,7 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
     ScalarTypeDefinition(Name("ID"), Nil)
   )
 
-  def isLeafType(name: Name): Boolean = name.name match
+  def isLeafType(name: Name): Boolean = name.text match
     case "Int" | "Float" | "String" | "Boolean" | "ID" => true
     case _                                             => false
 
@@ -91,6 +96,8 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
         case Some(_: EnumTypeDefinition)      => true
         case _                                => isLeafType(name)
   end isOutputType
+
+  def isObjectType(name: Name): Boolean = findTypeDef[ObjectTypeDefinition](name).isDefined
 
   def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
     (definitions ++ scalarDefs).collect { case t: T => t }.find(_.name == name)
@@ -160,16 +167,18 @@ sealed trait ExecutableDefinition extends Definition
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Queries
-case class Name(name: String)
+case class Name(text: String)
 
 // Types
-enum Type(val name: Name):
-  case NamedType(n: Name) extends Type(n)
-  case NonNullType(tpe: Type) extends Type(tpe.name)
-  case ListType(tpe: Type) extends Type(tpe.name)
+enum Type(val name: Name) extends HasName:
+  case NamedType(override val name: Name) extends Type(name)
+  case NonNullType(`type`: Type)          extends Type(`type`.name)
+  case ListType(`type`: Type)             extends Type(`type`.name)
 
 // Values
-case class VariableDefinition(name: Name, tpe: Type, defaultValue: Option[Value])
+case class VariableDefinition(name: Name, `type`: Type, defaultValue: Option[Value])
+    extends HasName,
+      HasType
 case class ObjectField(name: Name, value: Value)
 enum Value:
   case Variable(name: Name)
@@ -252,16 +261,19 @@ case class ScalarTypeExtension(name: Name, directives: NonEmptyList[Directive])
 // Object Type
 case class InputValueDefinition(
     name: Name,
-    tpe: Type,
+    `type`: Type,
     defaultValue: Option[Value],
     directives: List[Directive]
-) extends HasName
+) extends HasName,
+      HasType
 case class FieldDefinition(
     name: Name,
     arguments: List[InputValueDefinition],
-    tpe: Type,
+    `type`: Type,
     directives: List[Directive]
-) extends HasName
+) extends HasName,
+      HasArgs,
+      HasType
 
 case class ObjectTypeDefinition(
     name: Name,
@@ -312,7 +324,8 @@ case class UnionTypeExtension(
 ) extends TypeExtension
 
 // Enum Type Definition
-case class EnumValueDefinition(value: EnumValue, directives: List[Directive])
+case class EnumValueDefinition(value: EnumValue, directives: List[Directive]) extends HasName:
+  export value.*
 
 case class EnumTypeDefinition(
     name: Name,
@@ -330,8 +343,11 @@ case class EnumTypeExtension(
 case class InputObjectTypeDefinition(
     name: Name,
     directives: List[Directive],
-    fieldsDef: List[InputValueDefinition]
-) extends TypeDefinition
+    fields: List[InputValueDefinition]
+) extends TypeDefinition,
+      HasArgs {
+  val arguments = fields // Although these appear as fields they are also (kind of) arguments
+}
 
 case class InputObjectTypeExtension(
     name: Name,
@@ -344,15 +360,16 @@ sealed trait DirectiveLocation
 
 enum TypeSystemDirectiveLocation extends DirectiveLocation:
   case SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM,
-  ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
+    ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
 
 enum ExecutableDirectiveLocation extends DirectiveLocation:
   case QUERY, MUTATION, SUBSCRIPTION, FIELD, FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT,
-  VARIABLE_DEFINITION
+    VARIABLE_DEFINITION
 
 case class DirectiveDefinition(
     name: Name,
     arguments: List[InputValueDefinition],
     repeatable: Boolean,
     directiveLocs: NonEmptyList[DirectiveLocation]
-) extends TypeSystemDefinition
+) extends TypeSystemDefinition,
+      HasArgs

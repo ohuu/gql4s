@@ -155,12 +155,12 @@ object DocumentValidator:
     // try to find a sub with multiple roots
     val multipleRoots = subs.find {
       case OperationDefinition(
-            _,
-            _,
-            _,
-            _,
-            NonEmptyList(f: (InlineFragment | FragmentSpread), Nil)
-          ) =>
+             _,
+             _,
+             _,
+             _,
+             NonEmptyList(f: (InlineFragment | FragmentSpread), Nil)
+           ) =>
         !hasSingleRoot(f, frags)
       case OperationDefinition(_, _, _, _, selects) => selects.length > 1
     }
@@ -179,7 +179,7 @@ object DocumentValidator:
       namedType: NamedType,
       schema: TypeSystemDocument
   ): List[GqlError] =
-    schema.findTypeDef[TypeDefinition](namedType.n) match
+    schema.findTypeDef[TypeDefinition](namedType.name) match
       case Some(_: ObjectTypeDefinition | _: InterfaceTypeDefinition | _: UnionTypeDefinition) =>
         Nil
       case Some(typeDef) => IllegalType(NamedType(typeDef.name)) :: Nil
@@ -213,16 +213,16 @@ object DocumentValidator:
           val errs = duplicateErrs ::: accErrs
 
           // 5.6.2 input object field exists
-          inObjTypeDef.fieldsDef.find(_.name == name) match
+          inObjTypeDef.fields.find(_.name == name) match
             case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: errs)
             case Some(inValDef) =>
-              schema.findTypeDef[InputObjectTypeDefinition](inValDef.tpe.name) match
+              schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
                 case None =>
-                  recurse(tail, MissingInputObjectTypeDefinition(inValDef.tpe.name) :: errs)
+                  recurse(tail, MissingInputObjectTypeDefinition(inValDef.`type`.name) :: errs)
                 case Some(inObjTypeDef) =>
                   // 5.6.4 input objects required fields
-                  val requiredErrs = inObjTypeDef.fieldsDef
-                    .filter(_.tpe.isInstanceOf[NonNullType])
+                  val requiredErrs = inObjTypeDef.fields
+                    .filter(_.`type`.isInstanceOf[NonNullType])
                     .map(_.name)
                     .flatMap(name =>
                       value.fields.find(_.name == name) match
@@ -234,7 +234,7 @@ object DocumentValidator:
 
         case (ObjectField(name, value), inObjTypeDef) :: tail =>
           // 5.6.2 input object field exists
-          inObjTypeDef.fieldsDef.find(_.name == name) match
+          inObjTypeDef.fields.find(_.name == name) match
             case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: accErrs)
             case Some(_) => recurse(tail, accErrs)
     end recurse
@@ -246,12 +246,12 @@ object DocumentValidator:
       .map { case (name, _) => DuplicateField(name) }
       .toList
 
-    schema.findTypeDef[InputObjectTypeDefinition](inValDef.tpe.name) match
-      case None => MissingInputObjectTypeDefinition(inValDef.tpe.name) :: duplicateErrs
+    schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
+      case None => MissingInputObjectTypeDefinition(inValDef.`type`.name) :: duplicateErrs
       case Some(inObjTypeDef) =>
         // 5.6.4 input objects required fields
-        val requiredErrs = inObjTypeDef.fieldsDef
-          .filter(_.tpe.isInstanceOf[NonNullType])
+        val requiredErrs = inObjTypeDef.fields
+          .filter(_.`type`.isInstanceOf[NonNullType])
           .map(_.name)
           .flatMap(name =>
             inObjVal.fields.find(_.name == name) match
@@ -359,8 +359,8 @@ object DocumentValidator:
                   val argErrs = validateArguments(field, fieldDef, parentType, schema)
                   val errors  = argErrs ::: accErrs
 
-                  val fieldType: NamedType = NamedType(fieldDef.tpe.name)
-                  schema.findTypeDef[TypeDefinition](fieldType.n) match
+                  val fieldType: NamedType = NamedType(fieldDef.`type`.name)
+                  schema.findTypeDef[TypeDefinition](fieldType.name) match
                     case None => recurse(tail, MissingTypeDefinition(fieldType) :: errors)
 
                     // We found it but it's a leaf type so we can't recurse into its children,
@@ -426,8 +426,8 @@ object DocumentValidator:
 
     // 5.8.2 variable type must be an input type
     val inputTypeErrs = opDef.variableDefinitions
-      .filter(varDef => !schema.isInputType(varDef.tpe))
-      .map(varDef => IllegalType(varDef.tpe))
+      .filter(varDef => !schema.isInputType(varDef.`type`))
+      .map(varDef => IllegalType(varDef.`type`))
 
     // 5.8.3 variable uses defined
     val varDefinedErrs = opDefReqs
@@ -496,52 +496,53 @@ object DocumentValidator:
     // 5.5.2.2 Fragment definitions must not contain cycles
     // topologically sorting the fragment dependency graph will find cycles and provide an order to
     // find fragment definition requirements
-    topologicalSort(buildFragDefDepGraph(fragDefs))
-      .flatMap(sortedGraph =>
-        // 5.5.1.1 fragment definition unique name
-        val uniquenessErrs = fragDefs
-          .groupBy(_.name)
-          .filter { case _ -> xs => xs.length > 1 }
-          .map { case (name, _) => DuplicateFragmentDefinition(name) }
-          .toList
+    // topologicalSort(buildFragDefDepGraph(fragDefs))
+    //   .flatMap(sortedGraph =>
+    //     // 5.5.1.1 fragment definition unique name
+    //     val uniquenessErrs = fragDefs
+    //       .groupBy(_.name)
+    //       .filter { case _ -> xs => xs.length > 1 }
+    //       .map { case (name, _) => DuplicateFragmentDefinition(name) }
+    //       .toList
 
-        // 5.5.1.4 Fragment definitions must be used
-        val fragDefNames = fragDefs.map(_.name)
-        val fragSpreads  = doc.findFragSpreads().map(_.name)
-        val unusedErrs = fragDefNames
-          .filterNot(fragSpreads.contains)
-          .map(UnusedFragment(_))
+    //     // 5.5.1.4 Fragment definitions must be used
+    //     val fragDefNames = fragDefs.map(_.name)
+    //     val fragSpreads  = doc.findFragSpreads().map(_.name)
+    //     val unusedErrs = fragDefNames
+    //       .filterNot(fragSpreads.contains)
+    //       .map(UnusedFragment(_))
 
-        // 5.5.2.1 Fragment definition must exist
-        val missingFragDefErrs = sortedGraph
-          .flatMap((name, deps) =>
-            deps.flatMap(depName =>
-              if sortedGraph.exists((fragDef, _) => fragDef.name == depName) then None
-              else Some(MissingFragmentDefinition(depName))
-            )
-          )
-          .toList
+    //     // 5.5.2.1 Fragment definition must exist
+    //     val missingFragDefErrs = sortedGraph
+    //       .flatMap((name, deps) =>
+    //         deps.flatMap(depName =>
+    //           if sortedGraph.exists((fragDef, _) => fragDef.name == depName) then None
+    //           else Some(MissingFragmentDefinition(depName))
+    //         )
+    //       )
+    //       .toList
 
-        val fragDefErrs = fragDefs.flatMap(validateFragmentDefinition(_, doc, schema))
-        val errs        = uniquenessErrs ::: unusedErrs ::: missingFragDefErrs ::: fragDefErrs
+    //     val fragDefErrs = fragDefs.flatMap(validateFragmentDefinition(_, doc, schema))
+    //     val errs        = uniquenessErrs ::: unusedErrs ::: missingFragDefErrs ::: fragDefErrs
 
-        errs match
-          case Nil =>
-            if sortedGraph.isEmpty then Map.empty.asRight
-            else
-              // convert sorted graph to list of sorted frag defs
-              val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
+    //     errs match
+    //       case Nil =>
+    //         if sortedGraph.isEmpty then Map.empty.asRight
+    //         else
+    //           // convert sorted graph to list of sorted frag defs
+    //           val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
 
-              val rootFragDefReqs =
-                findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
+    //           val rootFragDefReqs =
+    //             findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
 
-              sortedFragDefs
-                .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
-                  findFragDefReqs(fragDef, accReqs, doc)
-                )
-                .asRight
-          case errs => errs.asLeft
-      )
+    //           sortedFragDefs
+    //             .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
+    //               findFragDefReqs(fragDef, accReqs, doc)
+    //             )
+    //             .asRight
+    //       case errs => errs.asLeft
+    //   )
+    ???
   end validateFragmentDefinitions
 
   def validate(

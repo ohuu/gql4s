@@ -10,20 +10,28 @@ import Type.*
 import cats.implicits.*
 import scala.annotation.tailrec
 import scala.collection.mutable.LinkedHashMap
+import cats.data.ValidatedNec
+import java.util.UUID
 
 object SchemaValidator:
+  type Validated[T] = ValidatedNec[GqlError, T]
+  case class ValidSchema(
+      schema: TypeSystemDocument,
+      objTypes: Map[ObjectTypeDefinition, Set[InterfaceTypeDefinition]]
+  ):
+    export schema.*
+
   /////////////////////////////////////////////////////////////////////////////////////////////////
   // Helper functions
   def buildInputObjDepGraph(
-      schema: TypeSystemDocument
+      inObjDefs: List[InputObjectTypeDefinition]
   ): DependencyGraph[InputObjectTypeDefinition] =
     LinkedHashMap.from(
-      schema
-        .getTypeDef[InputObjectTypeDefinition]
+      inObjDefs
         .map(inObj =>
-          inObj -> inObj.fieldsDef
-            .map(_.tpe.name)
-            .flatMap(schema.findTypeDef[InputObjectTypeDefinition])
+          inObj -> inObj.fields
+            .map(_.`type`.name)
+            .flatMap(name => inObjDefs.find(_.name == name))
             .map(_.name)
             .toSet
         )
@@ -32,46 +40,130 @@ object SchemaValidator:
 
   /////////////////////////////////////////////////////////////////////////////////////////////////
   // Validators
-  case class ValidSchema(
-      schema: TypeSystemDocument,
-      objTypes: Map[ObjectTypeDefinition, Set[InterfaceTypeDefinition]]
-  ):
-    export schema.*
+  def validateNotEmpty[T](ts: List[T]): Validated[List[T]] =
+    if ts.isEmpty then StructureEmpty().invalidNec
+    else ts.validNec
 
-  def validateNonNull(tpe: NonNullType): Option[GqlError] = tpe.tpe match
-    case NonNullType(_) =>
-      Some(IllegalType(tpe, Some("Non null types cannot wrap another non null type")))
-    case _ => None
+  def validateUniqueName[T <: HasName](ts: List[T]): Validated[List[T]] = ts
+    .groupBy(_.name)
+    .toList
+    .traverse {
+      case (_, occurance :: Nil) => occurance.validNec
+      case (name, _)             => DuplicateName(name).invalidNec
+    }
 
-  @tailrec
-  def isValidImplementationFieldType(
-      aFieldType: Type,
-      bFieldType: Type,
+  def validateNames[T <: HasName](ts: List[T]): Validated[List[T]] = ts
+    .traverse(t =>
+      t.name match
+        case name @ Name(text) if text.startsWith("__") => InvalidName(name).invalidNec
+        case _                                          => t.validNec
+    )
+
+  def validateTypeExists[K <: TypeDefinition](t: Type)(using
       schema: TypeSystemDocument
-  ): Option[GqlError] =
-    (aFieldType, bFieldType) match
-      case (NonNullType(a), NonNullType(b)) => isValidImplementationFieldType(a, b, schema)
-      case (NonNullType(a), b)              => isValidImplementationFieldType(a, b, schema)
-      case (ListType(a), ListType(b))       => isValidImplementationFieldType(a, b, schema)
-      case (ListType(a), b)                 => Some(InvalidImplementation(a))
-      case (a: NamedType, b: NamedType) =>
-        val aTypeDef = schema.findTypeDef[TypeDefinition](a.name)
-        val bTypeDef = schema.findTypeDef[TypeDefinition](b.name)
+  ): Validated[K] =
+    schema.findTypeDef[K](t.name) match
+      case Some(typeDef) => typeDef.validNec
+      case None          => MissingTypeDefintion(t.name).invalidNec
 
-        (aTypeDef, bTypeDef) match
-          case (Some(a), Some(b)) if a.name == b.name => None
-          case (Some(aObj: ObjectTypeDefinition), Some(bUnion: UnionTypeDefinition)) =>
-            if bUnion.unionMemberTypes.contains(a) then None
-            else Some(InvalidImplementation(a))
-          case (
-                Some(aObj: (ObjectTypeDefinition | InterfaceTypeDefinition)),
-                Some(_: InterfaceTypeDefinition)
-              ) =>
-            if aObj.interfaces.contains(b) then None
-            else Some(InvalidImplementation(a))
-          case _ => Some(InvalidImplementation(a))
-      case (a, _) => Some(InvalidImplementation(a))
-  end isValidImplementationFieldType
+  def validateTypes[T <: HasType](ts: List[T], validate: Type => Boolean): Validated[List[T]] = ts
+    .traverse(t =>
+      validate(t.`type`) match
+        case true  => t.validNec
+        case false => InvalidType(t.`type`).invalidNec
+    )
+
+  def validateNamedTypes[T <: HasName](ts: List[T], validate: Name => Boolean): Validated[List[T]] =
+    ts
+      .traverse(t =>
+        validate(t.name) match
+          case true  => t.validNec
+          case false => InvalidNamedType(t.name).invalidNec
+      )
+
+  def validateSelfImplementation[T <: HasName & HasInterfaces](t: T): Validated[T] =
+    if t.interfaces.exists(_.name == t.name)
+    then SelfImplementation(NamedType(t.name)).invalidNec
+    else t.validNec
+
+  /** checks whether {@a} declares that it implements all interfaces that {@b} implements. */
+  def validateDeclaredImplementations[T <: HasName & HasInterfaces](a: T, b: T): Validated[T] =
+    val aInterfaceSet = a.interfaces.map(_.name).toSet
+    val bInterfaceSet = b.interfaces.map(_.name).toSet
+    if bInterfaceSet subsetOf aInterfaceSet then a.validNec
+    else
+      val missingImpls = (bInterfaceSet diff aInterfaceSet).toList
+      MissingImplementations(a.name, missingImpls).invalidNec
+
+  def validateInvariant[T <: HasType](a: T, b: T): Validated[T] =
+    if a.`type` == b.`type` then a.validNec
+    else InvalidType(a.`type`).invalidNec
+
+  def validateCovariant(a: Type, b: Type)(using schema: TypeSystemDocument): Validated[Type] =
+    @tailrec
+    def validate(aType: Type, bType: Type): Boolean =
+      (aType, bType) match
+        case (NonNullType(a), NonNullType(b)) => validate(a, b)
+        case (NonNullType(a), b)              => validate(a, b)
+        case (ListType(a), ListType(b))       => validate(a, b)
+        case (ListType(a), b)                 => false
+        case (a: NamedType, b: NamedType) =>
+          val aTypeDef = schema.findTypeDef[TypeDefinition](a.name)
+          val bTypeDef = schema.findTypeDef[TypeDefinition](b.name)
+
+          (aTypeDef, bTypeDef) match
+            case (Some(a), Some(b)) if a.name == b.name => true
+            case (Some(_: ObjectTypeDefinition), Some(bUnion: UnionTypeDefinition)) =>
+              bUnion.unionMemberTypes.contains(a)
+            case (Some(aObj: ObjectLikeTypeDefinition), Some(_: InterfaceTypeDefinition)) =>
+              aObj.interfaces.contains(b)
+            case _ => false
+        case (a, _) => false
+    end validate
+
+    if validate(a, b) then a.validNec
+    else InvalidType(a, Some(s"$a is not covariant with $b")).invalidNec
+  end validateCovariant
+
+  def validateArgs[T <: HasArgs](aField: T, bField: T)(using TypeSystemDocument): Validated[T] =
+    val aArgs = aField.arguments
+    val bArgs = bField.arguments
+
+    val missingArgs      = bArgs.filter(bArg => aArgs.find(_.name == bArg.name).isDefined)
+    val intersectingArgs = bArgs.mapFilter(bArg => aArgs.find(_.name == bArg.name).map(bArg -> _))
+    val extraArgs        = aArgs.filter(aArg => bArgs.find(_.name == aArg.name).isEmpty)
+
+    // aField must contain ALL args in bField
+    // shared args must be the same type (invariant)
+    val validateArgs = bArgs.traverse(bArg =>
+      aArgs.find(_.name == bArg.name) match
+        case None       => MissingArgument2(bArg.name).invalidNec
+        case Some(aArg) => validateInvariant(aArg, bArg)
+    )
+
+    // aField can have more args than bField but they must not be required fields
+    val validateExtraArgs = extraArgs
+      .traverse(arg =>
+        arg.`type` match
+          case tpe: NonNullType => InvalidType(tpe).invalidNec
+          case _                => arg.validNec
+      )
+
+    (validateArgs, validateExtraArgs).mapN((validArgs, validExtraArgs) => aField)
+  end validateArgs
+
+  def validateFields[T <: HasFields](a: T, b: T)(using TypeSystemDocument): Validated[T] = b.fields
+    .traverse(bField =>
+      a.fields.find(_.name == bField.name) match
+        case None => MissingName(bField.name).invalidNec
+        case Some(aField) =>
+          (
+            validateArgs(aField, bField),
+            validateCovariant(aField.`type`, bField.`type`)
+          ).mapN((validArgs, validReturnType) => aField)
+    )
+    .map(_ => a)
+  end validateFields
 
   /** Checks whether the given type {@a} is a valid implementation of {@b}
     *
@@ -83,62 +175,14 @@ object SchemaValidator:
     * @param implementedType
     *   The type that we're checking against
     */
-  def isValidImplementation(
-      a: ObjectTypeDefinition | InterfaceTypeDefinition,
-      b: InterfaceTypeDefinition,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
-    // `a` MUST implement ALL interfaces that `b` implements
-    val aInterfaceSet = a.interfaces.toSet
-    val bInterfaceSet = b.interfaces.toSet
-    val implErrs =
-      if bInterfaceSet subsetOf aInterfaceSet then Nil
-      else (bInterfaceSet diff aInterfaceSet).map(NonImplementedInterface(_)).toList
-
-    // for each field in `b`
-    val fieldErrs = b.fields.flatMap(bField =>
-      // `a` must contain bField
-      a.fields.find(_.name == bField.name) match
-        case None         => List(MissingField(bField.name, NamedType(a.name)))
-        case Some(aField) =>
-          // get all the args in `b` and `a`
-          val aArgs = aField.arguments
-          val bArgs = bField.arguments
-
-          // map all arguments in bField to the arguments in aField by name.
-          val intersectingArgs = bArgs.map(bArg => bArg -> aArgs.find(_.name == bArg.name))
-
-          // get all the extra arguments in aField
-          val extraArgs = aArgs.filterNot(aArg => bArgs.exists(_.name == aArg.name))
-
-          // aField must contain ALL args in bField
-          val argExistsErrs = intersectingArgs
-            .filter { case (_, aArg) => aArg.isEmpty }
-            .map { case (bArg, _) => bArg.name }
-            .map(MissingArgument(_, aField.name, NamedType(a.name)))
-
-          // shared args must be the same type (invariant)
-          val argTypeErrs = intersectingArgs
-            .flatMap {
-              case (_, None)          => None
-              case (bArg, Some(aArg)) => Some(bArg -> aArg)
-            }
-            .filter { case (bArg, aArg) => bArg.tpe != aArg.tpe }
-            .map { case (bArg, aArg) => IllegalType(aArg.tpe, Some(s"expected ${bArg.tpe}")) }
-
-          // aField can have more args than bField but they must not be required fields
-          val extraArgErrs = extraArgs
-            .filter(arg => arg.tpe.isInstanceOf[NonNullType])
-            .map(arg => IllegalType(arg.tpe, Some("Argument cannot be required")))
-
-          // aField must return the same type or subtype (covariant) as bField
-          val returnErrs = isValidImplementationFieldType(aField.tpe, bField.tpe, schema)
-
-          argExistsErrs ::: argTypeErrs ::: extraArgErrs ::: returnErrs.toList
-    )
-
-    implErrs ::: fieldErrs
-  end isValidImplementation
+  def validateImplementation[T <: HasName & HasFields & HasInterfaces](a: T, b: T)(using
+      TypeSystemDocument
+  ): Validated[T] =
+    (
+      validateDeclaredImplementations(a, b),
+      validateFields(a, b)
+    ).mapN((validImpls, validFields) => a)
+  end validateImplementation
 
   /** Validates both object and interface types according to the `Type Validation` sections defined
     * in the GraphQL specification for object and interface types.
@@ -150,173 +194,89 @@ object SchemaValidator:
     * @return
     *   A list of errors, nil if no errors are found.
     */
-  def validateObjLike(
-      typeDef: ObjectTypeDefinition | InterfaceTypeDefinition,
+  def validateObjLike[T <: ObjectLikeTypeDefinition](typeDef: T)(using
       schema: TypeSystemDocument
-  ): List[GqlError] =
+  ): Validated[T] =
     // 3.6.1 Object like types must define one or more fields
-    val missingFieldsErr =
-      if typeDef.fields.isEmpty then List(MissingFields(NamedType(typeDef.name)))
-      else Nil
-
     // 3.6.2.1 Fields must have unique names within the Object type
-    val uniqueFieldErrs =
-      typeDef.fields
-        .groupBy(_.name)
-        .filter { case (_, fields) => fields.length > 1 }
-        .map { case (name, _) => DuplicateField(name) }
-        .toList
-
     // 3.6.2.2 Field names must not start with `__`
-    val fieldNameErrs =
-      typeDef.fields
-        .map(_.name)
-        .filter(_.name.startsWith("__"))
-        .map(IllegalName.apply)
-
     // 3.6.2.3 Fields must return an output type
-    val fieldTypeErrs =
-      typeDef.fields
-        .filterNot(f => schema.isOutputType(f.tpe))
-        .map(_.tpe)
-        .map(InvalidType.apply)
-
     // 3.6.2.4.1
-    val fieldArgNameErrs =
-      typeDef.fields
-        .flatMap(_.arguments)
-        .map(_.name)
-        .filter(_.name.startsWith("__"))
-        .map(IllegalName.apply)
-
     // 3.6.2.4.2
-    val fieldArgTypeErrs =
-      typeDef.fields
-        .flatMap(_.arguments)
-        .filterNot(f => schema.isInputType(f.tpe))
-        .map(_.tpe)
-        .map(InvalidType.apply)
-
     // 3.6.3 An object like type may declare that it implements one or more unique interfaces.
     //       If it's an interface type it may not implement itself
-    val uniqueInterfacesErrs = typeDef.interfaces
-      .groupBy(_.n)
-      .filter(_._2.length > 1)
-      .map((name, _) => name)
-      .map(DuplicateInterface(_))
-      .toList
-
-    val selfImplErr =
-      if typeDef.interfaces.exists(_.n == typeDef.name) then
-        List(SelfImplementation(NamedType(typeDef.name)))
-      else Nil
-
     // 3.6.4 An object type must be a super-set of all interfaces it implements
-    val validImplErrs = typeDef.interfaces
-      .map(namedType => namedType -> schema.findTypeDef[InterfaceTypeDefinition](namedType.n))
-      .flatMap {
-        case (namedType, None)          => List(MissingTypeDefinition(namedType))
-        case (_, Some(implemedtedType)) => isValidImplementation(typeDef, implemedtedType, schema)
-      }
+    // respectively
+    (
+      validateNotEmpty(typeDef.fields),
+      validateUniqueName(typeDef.fields),
+      validateNames(typeDef.fields),
+      validateTypes(typeDef.fields, schema.isOutputType),
+      validateNames(typeDef.fields.flatMap(_.arguments)),
+      validateTypes(typeDef.fields.flatMap(_.arguments), schema.isInputType),
+      validateUniqueName(typeDef.interfaces),
+      validateSelfImplementation(typeDef),
+      typeDef.interfaces
+        .traverse(validateTypeExists)
+        .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _)))
+    ).mapN((v1, v2, v3, v4, v5, v6, v7, v8, validImplementations) => typeDef)
 
-    missingFieldsErr :::
-      uniqueFieldErrs :::
-      fieldNameErrs :::
-      fieldTypeErrs :::
-      fieldArgNameErrs :::
-      fieldArgTypeErrs :::
-      uniqueInterfacesErrs :::
-      selfImplErr :::
-      validImplErrs
+    // val validImplErrs = typeDef.interfaces
+    //   .map(namedType => namedType -> schema.findTypeDef[InterfaceTypeDefinition](namedType.n))
+    //   .flatMap {
+    //     case (namedType, None)          => List(MissingTypeDefinition(namedType))
+    //     case (_, Some(implemedtedType)) => isValidImplementation(typeDef, implemedtedType, schema)
+    //   }
   end validateObjLike
 
-  def validateUnion(typeDef: UnionTypeDefinition, schema: TypeSystemDocument): List[GqlError] =
-    // 3.8.1 A Union type must include one or more unique member types.
-    val emptyUnionErr =
-      if typeDef.unionMemberTypes.isEmpty then List(MissingUnionMember(typeDef))
-      else Nil
-
-    val uniqueMemberErrs = typeDef.unionMemberTypes
-      .groupBy(_.n)
-      .collect { case (name, occurances) if occurances.length > 1 => DuplicateInterface(name) }
-      .toList
-
-    // 3.8.2 The member types of a Union type must all be Object base types
-    val memberTypeErrs = typeDef.unionMemberTypes.flatMap(memberType =>
-      schema.findTypeDef[TypeDefinition](memberType.name) match
-        case None                          => Some(MissingTypeDefinition(memberType))
-        case Some(_: ObjectTypeDefinition) => None
-        case Some(_) =>
-          Some(IllegalType(memberType, Some("Only object types can be members of a union")))
-    )
-
-    emptyUnionErr ::: uniqueMemberErrs ::: memberTypeErrs
+  def validateUnion[T <: UnionTypeDefinition](typeDef: T)(using
+      schema: TypeSystemDocument
+  ): Validated[T] =
+    // 3.8.1 A union type must include one or more unique member types.
+    // 3.8.2 The member types of a union type must all be object base types
+    // respectively
+    (
+      validateNotEmpty(typeDef.unionMemberTypes),
+      validateUniqueName(typeDef.unionMemberTypes),
+      validateNamedTypes(typeDef.unionMemberTypes, schema.isObjectType)
+    ).mapN((v1, v2, v3) => typeDef)
   end validateUnion
 
-  def validateEnum(typeDef: EnumTypeDefinition, schema: TypeSystemDocument): List[GqlError] =
+  def validateEnum[T <: EnumTypeDefinition](typeDef: T)(using TypeSystemDocument): Validated[T] =
     // 3.9.1 An Enum type must define one or more unique enum values.
-    val emptyValueErrs =
-      if typeDef.values.isEmpty then List(MissingEnumValue(typeDef))
-      else Nil
+    (validateNotEmpty(typeDef.values), validateUniqueName(typeDef.values)).mapN((v1, v2) => typeDef)
 
-    val uniqueValuesErrs = typeDef.values
-      .groupBy(_.value.name)
-      .collect { case (name, occurances) if occurances.length > 1 => DuplicateValue(name) }
-      .toList
-
-    emptyValueErrs ::: uniqueValuesErrs
-  end validateEnum
-
-  def validateInputObj(
-      typeDef: InputObjectTypeDefinition,
+  def validateInputObj[T <: InputObjectTypeDefinition](typeDef: T)(using
       schema: TypeSystemDocument
-  ): List[GqlError] =
-    // 3.10.1 An Input Object type must define one or more input fields
-    val fieldCountErr =
-      if typeDef.fieldsDef.isEmpty then List(MissingFields(NamedType(typeDef.name)))
-      else Nil
-
-    // 3.10.2.1 Fields must have unique names within the Object type
-    val uniqueFieldErrs =
-      typeDef.fieldsDef
-        .groupBy(_.name)
-        .filter { case (_, fields) => fields.length > 1 }
-        .map { case (name, _) => DuplicateField(name) }
-        .toList
-
-    // 3.10.2.2 Field names must not start with `__`
-    val fieldNameErrs =
-      typeDef.fieldsDef
-        .map(_.name)
-        .filter(_.name.startsWith("__"))
-        .map(IllegalName.apply)
-
-    // 3.10.2.3 Fields must return an output type
-    val fieldTypeErrs =
-      typeDef.fieldsDef
-        .filterNot(f => schema.isInputType(f.tpe))
-        .map(_.tpe)
-        .map(InvalidType.apply)
-
-    fieldCountErr ::: uniqueFieldErrs ::: fieldNameErrs ::: fieldTypeErrs
+  ): Validated[T] =
+    // validate
+    // 3.10.1 An Input Object type must define one or more input args (fields)
+    // 3.10.2.1 Arguments (fields) must have unique names within the Object type
+    // 3.10.2.2 Argument (Field) names must not start with `__`
+    // 3.10.2.3 Arguments (Fields) must return an output type
+    // respectively
+    (
+      validateNotEmpty(typeDef.fields),
+      validateUniqueName(typeDef.fields),
+      validateNames(typeDef.fields),
+      validateTypes(typeDef.fields, schema.isInputType)
+    )
+      .mapN((v1, v2, v3, v4) => typeDef)
   end validateInputObj
 
-  def validate(schema: TypeSystemDocument): Either[List[GqlError], ValidSchema] =
-    val typeDefErrs = schema.definitions.toList.flatMap {
-      case typeDef: ObjectLikeTypeDefinition  => validateObjLike(typeDef, schema)
-      case typeDef: UnionTypeDefinition       => validateUnion(typeDef, schema)
-      case typeDef: EnumTypeDefinition        => validateEnum(typeDef, schema)
-      case typeDef: InputObjectTypeDefinition => validateInputObj(typeDef, schema)
-      case _                                  => Nil
-    }
+  def validate(schema: TypeSystemDocument): Validated[TypeSystemDocument] =
+    given TypeSystemDocument = schema
 
-    // 3.10.3 If an Input Object references itself either directly or through referenced Input
-    //        Objects, at least one of the fields in the chain of references must be either a
-    //        nullable or a List type.
-    val circularRefErrs = containsCycles(buildInputObjDepGraph(schema))
+    val objLikeDefs = schema.getTypeDef[ObjectLikeTypeDefinition]
+    val unionDefs   = schema.getTypeDef[UnionTypeDefinition]
+    val enumDefs    = schema.getTypeDef[EnumTypeDefinition]
+    val inObjDefs   = schema.getTypeDef[InputObjectTypeDefinition]
 
-    typeDefErrs ::: circularRefErrs match
-      case Nil  => ???
-      case errs => errs.asLeft
-  end validate
+    (
+      objLikeDefs.traverse(validateObjLike),
+      unionDefs.traverse(validateUnion),
+      enumDefs.traverse(validateEnum),
+      inObjDefs.traverse(validateInputObj),
+      containsCycles(buildInputObjDepGraph(inObjDefs))
+    ).mapN((validObjLikes, validUnions, validEnums, validInObjs, validGraph) => schema)
 end SchemaValidator
