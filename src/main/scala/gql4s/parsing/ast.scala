@@ -3,35 +3,98 @@
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
 package gql4s
+package parsing
 
 import cats.data.NonEmptyList
 import scala.annotation.tailrec
 
 import OperationType.*
-import Selection.*
 import Type.*
 import Value.*
 import scala.reflect.TypeTest
 
 sealed trait HasType:
   def `type`: Type
+
+// given HasType[VariableDefinition] with
+//   extension (t: VariableDefinition) def getType = t.`type`
+
+// given HasType[FieldDefinition] with
+//   extension (t: FieldDefinition) def getType = t.`type`
+
+// given HasType[InputValueDefinition] with
+//   extension (t: InputValueDefinition) def getType = t.`type`
+
 sealed trait HasName:
   def name: Name
+
+// given HasName[Type] with
+//   extension (t: Type) def getName = t.name
+
+// given HasName[VariableDefinition] with
+//   extension (t: VariableDefinition) def getName = t.name
+
+// given HasName[FragmentDefinition] with
+//   extension (t: FragmentDefinition) def getName = t.name
+
+// given HasName[Field] with
+//   extension (t: Field) def getName = t.name
+
+// given HasName[FragmentSpread] with
+//   extension (t: FragmentSpread) def getName = t.name
+
+// given HasName[TypeDefinition] with
+//   extension (t: TypeDefinition) def getName = t.name
+
+// given HasName[TypeExtension] with
+//   extension (t: TypeExtension) def getName = t.name
+
+// given HasName[InputValueDefinition] with
+//   extension (t: InputValueDefinition) def getName = t.name
+
+// given HasName[FieldDefinition] with
+//   extension (t: FieldDefinition) def getName = t.name
+
+// given HasName[EnumValueDefinition] with
+//   extension (t: EnumValueDefinition) def getName = t.name
 
 sealed trait HasFields:
   def fields: List[FieldDefinition]
 
+// given HasFields[ObjectLikeTypeDefinition] with
+//   extension (t: ObjectLikeTypeDefinition) def getFields = t.fields
+
 sealed trait HasArgs:
   def arguments: List[InputValueDefinition]
+
+// given HasArgs[FieldDefinition] with
+//   extension (t: FieldDefinition) def getArguments = t.arguments
+
+// given HasArgs[InputObjectTypeDefinition] with
+//   extension (t: InputObjectTypeDefinition) def getArguments = t.fields
+
+// given HasArgs[DirectiveDefinition] with
+//   extension (t: DirectiveDefinition) def getArguments = t.arguments
 
 sealed trait HasInterfaces:
   def interfaces: List[NamedType]
 
+// given HasInterfaces[ObjectLikeTypeDefinition] with
+//   extension (t: ObjectLikeTypeDefinition) def getInterfaces = t.interfaces
+
+sealed trait HasSelectionSet:
+  def selectionSet: SelectionSet
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
 case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
+  def findExecDef[T <: ExecutableDefinition](using TypeTest[Any, T]) =
+    definitions.collect { case t: T => t }
+
   def findFragDef(fragName: Name): Option[FragmentDefinition] =
     definitions.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
+
+  def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
 
   /** Finds unique uses of fragment spreads.
     *
@@ -177,9 +240,10 @@ enum Type(val name: Name) extends HasName:
 
 // Values
 case class VariableDefinition(name: Name, `type`: Type, defaultValue: Option[Value])
-    extends HasName,
-      HasType
-case class ObjectField(name: Name, value: Value)
+    extends HasType,
+      HasName
+
+case class ObjectField(name: Name, value: Value) extends HasName
 enum Value:
   case Variable(name: Name)
   case IntValue(value: Int)
@@ -192,7 +256,7 @@ enum Value:
   case ObjectValue(fields: List[ObjectField])
 
 // Arguments
-case class Argument(name: Name, value: Value)
+case class Argument(name: Name, value: Value) extends HasName
 
 // Directives
 case class Directive(name: Name, arguments: List[Argument])
@@ -206,33 +270,39 @@ case class FragmentDefinition(
 ) extends ExecutableDefinition,
       HasName
 
-type SelectionSet = List[Selection]
-enum Selection:
-  case Field(
-      alias: Option[Name],
-      name: Name,
-      arguments: List[Argument],
-      directives: List[Directive],
-      selectionSet: List[Selection]
-  )
-  case InlineFragment(
-      onType: Option[Type.NamedType],
-      directives: List[Directive],
-      selectionSet: NonEmptyList[Selection]
-  )
-  case FragmentSpread(name: Name, directives: List[Directive])
+type SelectionSet = NonEmptyList[Selection]
+sealed trait Selection // TODO: this should be an enum! Once HasName is a typeclass see if you can add an instance of HasName[FragmentSpread]
+
+case class Field(
+    alias: Option[Name],
+    name: Name,
+    arguments: List[Argument],
+    directives: List[Directive],
+    selectionSet: List[Selection]
+) extends Selection,
+      HasName
+
+case class InlineFragment(
+    onType: Option[Type.NamedType],
+    directives: List[Directive],
+    selectionSet: NonEmptyList[Selection]
+) extends Selection
+
+case class FragmentSpread(name: Name, directives: List[Directive]) extends Selection, HasName
 
 // Operations
 enum OperationType:
   case Query, Mutation, Subscription
 
 case class OperationDefinition(
+    name: Name,
     operationType: OperationType,
-    name: Option[Name],
     variableDefinitions: List[VariableDefinition],
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
-) extends ExecutableDefinition
+) extends ExecutableDefinition,
+      HasSelectionSet,
+      HasName
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Schema
@@ -240,8 +310,11 @@ sealed trait TypeSystemDefinition            extends Definition
 sealed trait TypeSystemExtension             extends Definition
 sealed trait TypeSystemDefinitionOrExtension extends Definition
 
-sealed trait TypeDefinition extends TypeSystemDefinition, HasName
-sealed trait TypeExtension  extends TypeSystemExtension, HasName
+sealed trait TypeDefinition extends TypeSystemDefinition, HasName:
+  def name: Name
+
+sealed trait TypeExtension extends TypeSystemExtension, HasName:
+  def name: Name
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
 
@@ -264,25 +337,29 @@ case class InputValueDefinition(
     `type`: Type,
     defaultValue: Option[Value],
     directives: List[Directive]
-) extends HasName,
-      HasType
+) extends HasType,
+      HasName
+
 case class FieldDefinition(
     name: Name,
     arguments: List[InputValueDefinition],
     `type`: Type,
     directives: List[Directive]
-) extends HasName,
-      HasArgs,
-      HasType
+) extends HasType,
+      HasName,
+      HasArgs
+
+trait ObjectLikeTypeDefinition extends TypeDefinition, HasName, HasFields, HasInterfaces:
+  def name: Name
+  def fields: List[FieldDefinition]
+  def interfaces: List[NamedType]
 
 case class ObjectTypeDefinition(
     name: Name,
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeDefinition,
-      HasFields,
-      HasInterfaces
+) extends ObjectLikeTypeDefinition
 
 case class ObjectTypeExtension(
     name: Name,
@@ -297,9 +374,7 @@ case class InterfaceTypeDefinition(
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeDefinition,
-      HasFields,
-      HasInterfaces
+) extends ObjectLikeTypeDefinition
 
 case class InterfaceTypeExtension(
     name: Name,
@@ -307,8 +382,6 @@ case class InterfaceTypeExtension(
     directives: List[Directive],
     fields: List[FieldDefinition]
 ) extends TypeExtension
-
-type ObjectLikeTypeDefinition = ObjectTypeDefinition | InterfaceTypeDefinition
 
 // Unions
 case class UnionTypeDefinition(
@@ -345,9 +418,8 @@ case class InputObjectTypeDefinition(
     directives: List[Directive],
     fields: List[InputValueDefinition]
 ) extends TypeDefinition,
-      HasArgs {
-  val arguments = fields // Although these appear as fields they are also (kind of) arguments
-}
+      HasArgs:
+  def arguments = fields // Although these appear as fields they are also (kind of) arguments
 
 case class InputObjectTypeExtension(
     name: Name,

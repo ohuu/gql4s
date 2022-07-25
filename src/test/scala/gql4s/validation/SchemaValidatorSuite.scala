@@ -5,12 +5,16 @@
 package gql4s
 package validation
 
+import cats.implicits.*
 import cats.data.NonEmptyList
-import cats.data.Validated.*
+import cats.data.Validated.{Invalid, Valid}
 import munit.FunSuite
-import GqlError.*
+import parsing.*
+import errors.*
+
 import SchemaValidator.*
 import Type.*
+import GqlError.*
 
 class SchemaValidatorSuite extends FunSuite:
   test("Any type is a subtype of itself") {
@@ -542,19 +546,14 @@ class SchemaValidatorSuite extends FunSuite:
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
-        validate(schema) match
-          case Invalid(errs) =>
-            val actualErr   = errs.head
-            val expectedErr = CyclesDetected(List(Name("A"), Name("D"), Name("E")))
-            assertEquals(clue(actualErr), expectedErr)
-          case Valid(_) => fail("Expected to fail")
-//         val errs = validate(schema)
-//         assertEquals(
-//           clue(errs),
-//           Left(
-//             List(ContainsCycles(Name("A")), ContainsCycles(Name("D")), ContainsCycles(Name("E")))
-//           )
-//         )
+        val errs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+        val actual = errs.filter(_.isInstanceOf[CycleDetected])
+        val expected = List(
+          CycleDetected(Name("A")),
+          CycleDetected(Name("D")),
+          CycleDetected(Name("E"))
+        )
+        assertEquals(clue(actual), clue(expected))
       case _ => fail("failed to parse schemaStr")
   }
 end SchemaValidatorSuite

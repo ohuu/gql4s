@@ -3,8 +3,10 @@
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
 package gql4s
+package errors
 
-import Type.*
+import parsing.*
+import parsing.Type.*
 
 enum GqlError:
   case MissingOperationTypeDefinition(opType: OperationType)
@@ -42,16 +44,23 @@ enum GqlError:
   case NonImplementedInterface(interface: NamedType)
   case TypeMismatch(expected: Type, actual: Type)
   case SelfImplementation(tpe: NamedType)
-  case ContainsCycles(name: Name)
+  // case ContainsCycles(name: Name)
 
   case StructureEmpty(context: Option[String] = None)
   case MissingName(name: Name, context: Option[String] = None)
   case MissingNames(names: List[Name], context: Option[String] = None)
   case MissingImplementations(parent: Name, missing: List[Name], context: Option[String] = None)
   case MissingArgument2(name: Name, context: Option[String] = None)
-  case MissingTypeDefintion(name: Name, context: Option[String] = None)
+  case MissingField2(name: Name, parentType: NamedType, context: Option[String] = None)
+  case MissingSelection2(fieldName: Name, parentType: NamedType, context: Option[String] = None)
+  case MissingVariable2(name: Name, context: Option[String] = None)
+  case MissingDefinition(name: Name, context: Option[String] = None)
+  case UnusedDefinition(name: Name, context: Option[String] = None)
   case DuplicateName(name: Name, context: Option[String] = None)
   case InvalidName(name: Name, context: Option[String] = None)
   case InvalidType(`type`: Type, context: Option[String] = None)
   case InvalidNamedType(name: Name, context: Option[String] = None)
-  case CyclesDetected(cycles: List[Name], context: Option[String] = None)
+  case InvalidSelection(fieldName: Name, namedType: NamedType, context: Option[String] = None)
+  case CycleDetected(cycle: Name, context: Option[String] = None)
+  case OperationDefinitionError(context: Option[String] = None)
+  case SubscriptionHasMultipleRoots2(subName: Option[Name], context: Option[String] = None)

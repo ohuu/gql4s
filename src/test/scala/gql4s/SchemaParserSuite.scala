@@ -6,9 +6,10 @@ package gql4s
 
 import cats.data.NonEmptyList
 import munit.FunSuite
+import parsing.*
 
-import Type.*
-import Value.*
+import parsing.Type.*
+import parsing.Value.*
 
 class SchemaParserSuite extends FunSuite:
   test("scalars") {

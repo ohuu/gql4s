@@ -5,16 +5,18 @@
 package gql4s
 package validation
 
-import GqlError.*
-import Type.*
 import cats.implicits.*
+import scala.reflect.*
 import scala.annotation.tailrec
 import scala.collection.mutable.LinkedHashMap
 import cats.data.ValidatedNec
 import java.util.UUID
 
+import errors.GqlError.*
+import parsing.*
+import parsing.Type.*
+
 object SchemaValidator:
-  type Validated[T] = ValidatedNec[GqlError, T]
   case class ValidSchema(
       schema: TypeSystemDocument,
       objTypes: Map[ObjectTypeDefinition, Set[InterfaceTypeDefinition]]
@@ -44,14 +46,6 @@ object SchemaValidator:
     if ts.isEmpty then StructureEmpty().invalidNec
     else ts.validNec
 
-  def validateUniqueName[T <: HasName](ts: List[T]): Validated[List[T]] = ts
-    .groupBy(_.name)
-    .toList
-    .traverse {
-      case (_, occurance :: Nil) => occurance.validNec
-      case (name, _)             => DuplicateName(name).invalidNec
-    }
-
   def validateNames[T <: HasName](ts: List[T]): Validated[List[T]] = ts
     .traverse(t =>
       t.name match
@@ -59,12 +53,13 @@ object SchemaValidator:
         case _                                          => t.validNec
     )
 
-  def validateTypeExists[K <: TypeDefinition](t: Type)(using
-      schema: TypeSystemDocument
-  ): Validated[K] =
-    schema.findTypeDef[K](t.name) match
+  // TODO: Type test for K can't be performed at runtime. Is this a problem?
+  def validateTypeExists[K <: TypeDefinition](
+      t: Type
+  )(using TypeSystemDocument, TypeTest[Any, K]): Validated[K] =
+    summon[TypeSystemDocument].findTypeDef[K](t.name) match
       case Some(typeDef) => typeDef.validNec
-      case None          => MissingTypeDefintion(t.name).invalidNec
+      case None          => MissingDefinition(t.name).invalidNec
 
   def validateTypes[T <: HasType](ts: List[T], validate: Type => Boolean): Validated[List[T]] = ts
     .traverse(t =>
@@ -99,7 +94,7 @@ object SchemaValidator:
     if a.`type` == b.`type` then a.validNec
     else InvalidType(a.`type`).invalidNec
 
-  def validateCovariant(a: Type, b: Type)(using schema: TypeSystemDocument): Validated[Type] =
+  def validateCovariant(a: Type, b: Type)(using TypeSystemDocument): Validated[Type] =
     @tailrec
     def validate(aType: Type, bType: Type): Boolean =
       (aType, bType) match
@@ -108,8 +103,8 @@ object SchemaValidator:
         case (ListType(a), ListType(b))       => validate(a, b)
         case (ListType(a), b)                 => false
         case (a: NamedType, b: NamedType) =>
-          val aTypeDef = schema.findTypeDef[TypeDefinition](a.name)
-          val bTypeDef = schema.findTypeDef[TypeDefinition](b.name)
+          val aTypeDef = summon[TypeSystemDocument].findTypeDef[TypeDefinition](a.name)
+          val bTypeDef = summon[TypeSystemDocument].findTypeDef[TypeDefinition](b.name)
 
           (aTypeDef, bTypeDef) match
             case (Some(a), Some(b)) if a.name == b.name => true
@@ -195,7 +190,8 @@ object SchemaValidator:
     *   A list of errors, nil if no errors are found.
     */
   def validateObjLike[T <: ObjectLikeTypeDefinition](typeDef: T)(using
-      schema: TypeSystemDocument
+      TypeSystemDocument,
+      TypeTest[Any, T]
   ): Validated[T] =
     // 3.6.1 Object like types must define one or more fields
     // 3.6.2.1 Fields must have unique names within the Object type
@@ -211,13 +207,13 @@ object SchemaValidator:
       validateNotEmpty(typeDef.fields),
       validateUniqueName(typeDef.fields),
       validateNames(typeDef.fields),
-      validateTypes(typeDef.fields, schema.isOutputType),
+      validateTypes(typeDef.fields, summon[TypeSystemDocument].isOutputType),
       validateNames(typeDef.fields.flatMap(_.arguments)),
-      validateTypes(typeDef.fields.flatMap(_.arguments), schema.isInputType),
+      validateTypes(typeDef.fields.flatMap(_.arguments), summon[TypeSystemDocument].isInputType),
       validateUniqueName(typeDef.interfaces),
       validateSelfImplementation(typeDef),
       typeDef.interfaces
-        .traverse(validateTypeExists)
+        .traverse(validateTypeExists[ObjectLikeTypeDefinition])
         .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _)))
     ).mapN((v1, v2, v3, v4, v5, v6, v7, v8, validImplementations) => typeDef)
 
@@ -230,7 +226,7 @@ object SchemaValidator:
   end validateObjLike
 
   def validateUnion[T <: UnionTypeDefinition](typeDef: T)(using
-      schema: TypeSystemDocument
+      TypeSystemDocument
   ): Validated[T] =
     // 3.8.1 A union type must include one or more unique member types.
     // 3.8.2 The member types of a union type must all be object base types
@@ -238,16 +234,19 @@ object SchemaValidator:
     (
       validateNotEmpty(typeDef.unionMemberTypes),
       validateUniqueName(typeDef.unionMemberTypes),
-      validateNamedTypes(typeDef.unionMemberTypes, schema.isObjectType)
+      validateNamedTypes(typeDef.unionMemberTypes, summon[TypeSystemDocument].isObjectType)
     ).mapN((v1, v2, v3) => typeDef)
   end validateUnion
 
-  def validateEnum[T <: EnumTypeDefinition](typeDef: T)(using TypeSystemDocument): Validated[T] =
+  def validateEnum[T <: EnumTypeDefinition](typeDef: T)(using
+      TypeSystemDocument
+  ): Validated[T] =
     // 3.9.1 An Enum type must define one or more unique enum values.
     (validateNotEmpty(typeDef.values), validateUniqueName(typeDef.values)).mapN((v1, v2) => typeDef)
+  end validateEnum
 
   def validateInputObj[T <: InputObjectTypeDefinition](typeDef: T)(using
-      schema: TypeSystemDocument
+      TypeSystemDocument
   ): Validated[T] =
     // validate
     // 3.10.1 An Input Object type must define one or more input args (fields)
@@ -259,7 +258,7 @@ object SchemaValidator:
       validateNotEmpty(typeDef.fields),
       validateUniqueName(typeDef.fields),
       validateNames(typeDef.fields),
-      validateTypes(typeDef.fields, schema.isInputType)
+      validateTypes(typeDef.fields, summon[TypeSystemDocument].isInputType)
     )
       .mapN((v1, v2, v3, v4) => typeDef)
   end validateInputObj

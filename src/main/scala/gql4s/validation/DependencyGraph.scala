@@ -9,10 +9,17 @@ import cats.implicits.*
 import cats.data.ValidatedNec
 import scala.annotation.tailrec
 import scala.collection.mutable.LinkedHashMap
-import gql4s.GqlError
-import GqlError.*
+import parsing.*
+import errors.*
 
-type DependencyGraph[K <: HasName] = LinkedHashMap[K, Set[Name]]
+import GqlError.*
+import cats.kernel.Semigroup
+import scala.collection.mutable
+
+type DependencyGraph[K] = LinkedHashMap[K, Set[Name]]
+
+given [K <: HasName]: Semigroup[DependencyGraph[K]] with
+  def combine(x: DependencyGraph[K], y: DependencyGraph[K]) = x ++ y
 
 /** @return
   *   either a copy of the dependency graph topologically sorted, or a list of nodes which contain
@@ -20,20 +27,23 @@ type DependencyGraph[K <: HasName] = LinkedHashMap[K, Set[Name]]
   */
 def topologicalSort[K <: HasName](
     graph: DependencyGraph[K]
-): Either[List[Name], DependencyGraph[K]] =
+): Validated[DependencyGraph[K]] =
   @tailrec
   def recurse(
       graph: DependencyGraph[K],
       ordering: DependencyGraph[K] = LinkedHashMap.empty
-  ): Either[List[Name], DependencyGraph[K]] =
-    if graph.isEmpty then ordering.asRight
+  ): Validated[DependencyGraph[K]] =
+    if graph.isEmpty then ordering.validNec
     else
       // find a node with zero inputs
       val zeroDegree = graph.find((k, _) => graph.find((_, v) => v.contains(k.name)).isEmpty)
 
       zeroDegree match
         // 5.5.2.2 Fragment definitions must not contain cycles
-        case None => graph.map((k, _) => k.name).toList.asLeft[DependencyGraph[K]] // k has cycles!
+        case None =>
+          graph.keys.toList
+            .map(k => CycleDetected(k.name).invalidNec[DependencyGraph[K]])
+            .reduceLeft(_ combine _) // k has cycles!
         case Some(zeroDegree @ (zeroDegreeFragDef, _)) =>
           recurse(
             graph.filter((fragDef, _) => fragDef != zeroDegreeFragDef),
@@ -44,9 +54,5 @@ def topologicalSort[K <: HasName](
   recurse(graph)
 end topologicalSort
 
-def containsCycles[K <: HasName](
-    graph: DependencyGraph[K]
-): ValidatedNec[GqlError, DependencyGraph[K]] =
-  topologicalSort(graph) match
-    case Right(_)     => graph.validNec
-    case Left(cycles) => CyclesDetected(cycles).invalidNec
+def containsCycles[K <: HasName](graph: DependencyGraph[K]): Validated[DependencyGraph[K]] =
+  topologicalSort(graph)

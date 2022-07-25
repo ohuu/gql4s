@@ -6,11 +6,11 @@ package gql4s
 
 import cats.data.NonEmptyList
 import munit.FunSuite
+import parsing.*
 
-import OperationType.*
-import Selection.*
-import Type.*
-import Value.*
+import parsing.OperationType.*
+import parsing.Type.*
+import parsing.Value.*
 
 class QueryParserSuite extends FunSuite:
   test("comments") {
@@ -271,8 +271,8 @@ class QueryParserSuite extends FunSuite:
       }"""
 
     val mutationRes = OperationDefinition(
+      Name(""),
       Mutation,
-      name = None,
       variableDefinitions = Nil,
       directives = Nil,
       selectionSet = NonEmptyList.one(
@@ -307,8 +307,8 @@ class QueryParserSuite extends FunSuite:
       }"""
 
     val anonQueryRes = OperationDefinition(
+      Name(""),
       Query,
-      None,
       Nil,
       Nil,
       NonEmptyList.one(Field(None, Name("field"), Nil, Nil, Nil))

@@ -3,6 +3,7 @@
 // For more information see LICENSE or https://opensource.org/licenses/MIT
 
 package gql4s
+package parsing
 
 import cats.data.NonEmptyList
 import cats.parse.Parser as P
@@ -13,7 +14,6 @@ import cats.parse.Numbers.{digit, nonZeroDigit}
 import TypeSystemDirectiveLocation.*
 import ExecutableDirectiveLocation.*
 import OperationType.*
-import Selection.*
 import Type.*
 import Value.*
 
@@ -182,12 +182,15 @@ val query         = string("query").map(_ => Query)
 val mutation      = string("mutation").map(_ => Mutation)
 val subscription  = string("subscription").map(_ => Subscription)
 val operationType = query | mutation | subscription
-val operationDefinition =
+val operationDefinition: P[OperationDefinition] =
   (((operationType <* __) ~ (name.? <* __) ~ (variableDefinitions0 <* __) ~ (directives0 <* __)).?.with1 ~ selectionSet)
     .map {
-      case None -> selectionSet => OperationDefinition(Query, None, Nil, Nil, selectionSet)
-      case Some(operationType -> name -> variableDefinitions -> directives) -> selectionSet =>
-        OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet)
+      case None -> selectionSet =>
+        OperationDefinition(Name(""), Query, Nil, Nil, selectionSet)
+      case Some(operationType -> None -> variableDefinitions -> directives) -> selectionSet =>
+        OperationDefinition(Name(""), operationType, variableDefinitions, directives, selectionSet)
+      case Some(operationType -> Some(name) -> variableDefinitions -> directives) -> selectionSet =>
+        OperationDefinition(name, operationType, variableDefinitions, directives, selectionSet)
     }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////

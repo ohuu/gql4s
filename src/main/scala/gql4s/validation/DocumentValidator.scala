@@ -10,11 +10,12 @@ import cats.implicits.*
 import scala.collection.immutable.HashMap
 import scala.annotation.tailrec
 
-import GqlError.*
-import OperationType.*
-import Selection.*
-import Type.*
-import Value.*
+import errors.*
+import errors.GqlError.*
+import parsing.*
+import parsing.OperationType.*
+import parsing.Type.*
+import parsing.Value.*
 import scala.collection.mutable.LinkedHashMap
 
 object DocumentValidator:
@@ -135,7 +136,9 @@ object DocumentValidator:
   /**   - 5.2.3.1 Checks to see if the used fragment has a single root
     */
   // TODO: need to stop introspection fields in subscription's root
-  def validateSubscriptionsHaveSingleRoot(doc: ExecutableDocument): List[GqlError] =
+  def validateSubscriptionsHaveSingleRoot(using
+      doc: ExecutableDocument
+  ): Validated[List[OperationDefinition]] =
     def hasSingleRoot(
         frag: InlineFragment | FragmentSpread,
         fragDefs: List[FragmentDefinition]
@@ -148,9 +151,11 @@ object DocumentValidator:
             case Some(frag) => frag.selectionSet.length == 1
     end hasSingleRoot
 
-    val ops   = doc.definitions.collect { case x: OperationDefinition => x }
-    val frags = doc.definitions.collect { case x: FragmentDefinition => x }
-    val subs  = ops.filter(_.operationType == Subscription)
+    val ops   = doc.getDef[OperationDefinition]
+    val frags = doc.getDef[FragmentDefinition]
+
+    val namedOps = ops.filter(_.name.text.nonEmpty)
+    val subs     = ops.filter(_.operationType == Subscription)
 
     // try to find a sub with multiple roots
     val multipleRoots = subs.find {
@@ -166,8 +171,10 @@ object DocumentValidator:
     }
 
     multipleRoots match
-      case Some(opDef) => SubscriptionHasMultipleRoots(opDef.name) :: Nil
-      case None        => Nil
+      // TODO: Have to use None because OperationDefinition may not have a name and is actually split into
+      // two different case classes (OperationDefinition and OperationDefinitionWithName)
+      case Some(opDef) => SubscriptionHasMultipleRoots(None).invalidNec
+      case None        => subs.validNec
   end validateSubscriptionsHaveSingleRoot
 
   /**   - 5.5.1.2 Fragment types should exist.
@@ -176,14 +183,14 @@ object DocumentValidator:
   // TODO: Spec contains error - formal spec explicitly mentions named spreads which implies
   //       inlined fragments are not covered by this validation rule, but they clearly are!
   def validateObjectLikeTypeDefExists(
-      namedType: NamedType,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
+      namedType: NamedType
+  )(using schema: TypeSystemDocument): Validated[NamedType] =
     schema.findTypeDef[TypeDefinition](namedType.name) match
       case Some(_: ObjectTypeDefinition | _: InterfaceTypeDefinition | _: UnionTypeDefinition) =>
-        Nil
-      case Some(typeDef) => IllegalType(NamedType(typeDef.name)) :: Nil
-      case None          => MissingTypeDefinition(namedType) :: Nil
+        namedType.validNec
+      case Some(typeDef) => InvalidNamedType(typeDef.name).invalidNec
+      case None          => MissingDefinition(namedType.name).invalidNec
+  end validateObjectLikeTypeDefExists
 
   /**   - 5.6.2 input object field exists
     *   - 5.6.3 input object field duplicates
@@ -191,75 +198,86 @@ object DocumentValidator:
     */
   def validateInputObjectValue(
       inObjVal: ObjectValue,
-      inValDef: InputValueDefinition,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
+      inValDef: InputValueDefinition
+  )(using schema: TypeSystemDocument): Validated[ObjectValue] =
     @tailrec
     def recurse(
         inObjs: List[(ObjectField, InputObjectTypeDefinition)],
-        accErrs: List[GqlError] = Nil
-    ): List[GqlError] =
+        acc: Validated[Unit]
+    ): Validated[Unit] =
       inObjs match
-        case Nil => accErrs
+        case Nil => acc
 
         case (ObjectField(name, value: ObjectValue), inObjTypeDef) :: tail =>
           // 5.6.3 input object field duplicates
-          val duplicateErrs = value.fields
-            .groupBy(_.name)
-            .filter(_._2.length > 1)
-            .map { case (name, _) => DuplicateField(name) }
-            .toList
-
-          val errs = duplicateErrs ::: accErrs
+          val validatedFieldNames = validateUniqueName(value.fields).map(_ => ())
 
           // 5.6.2 input object field exists
           inObjTypeDef.fields.find(_.name == name) match
-            case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: errs)
+            case None =>
+              val parentType: NamedType = NamedType(inObjTypeDef.name)
+              val validatedMissingField = MissingField2(name, parentType).invalidNec
+              recurse(tail, validatedFieldNames combine validatedMissingField combine acc)
             case Some(inValDef) =>
               schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
                 case None =>
-                  recurse(tail, MissingInputObjectTypeDefinition(inValDef.`type`.name) :: errs)
+                  val validatedMissingDef = MissingDefinition(inValDef.`type`.name).invalidNec
+                  recurse(tail, validatedFieldNames combine validatedMissingDef combine acc)
                 case Some(inObjTypeDef) =>
                   // 5.6.4 input objects required fields
-                  val requiredErrs = inObjTypeDef.fields
+                  val validatedRequiredFields = inObjTypeDef.fields
                     .filter(_.`type`.isInstanceOf[NonNullType])
                     .map(_.name)
-                    .flatMap(name =>
+                    .map(name =>
                       value.fields.find(_.name == name) match
-                        case None    => List(MissingField(name, NamedType(inObjTypeDef.name)))
-                        case Some(_) => Nil
+                        case None =>
+                          MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec[Unit]
+                        case Some(_) => ().validNec[GqlError]
                     )
+                    .reduceOption(_ combine _)
+                    .getOrElse(().validNec)
 
-                  recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, errs)
+                  recurse(
+                    value.fields.map(_ -> inObjTypeDef) ::: tail,
+                    validatedFieldNames combine validatedRequiredFields combine acc
+                  )
 
         case (ObjectField(name, value), inObjTypeDef) :: tail =>
           // 5.6.2 input object field exists
           inObjTypeDef.fields.find(_.name == name) match
-            case None => recurse(tail, MissingField(name, NamedType(inObjTypeDef.name)) :: accErrs)
-            case Some(_) => recurse(tail, accErrs)
+            case None =>
+              val validatedMissingField =
+                MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec
+              recurse(tail, validatedMissingField combine acc)
+            case Some(_) => recurse(tail, acc)
     end recurse
 
     // 5.6.3 input object field duplicates
-    val duplicateErrs = inObjVal.fields
-      .groupBy(_.name)
-      .filter(_._2.length > 1)
-      .map { case (name, _) => DuplicateField(name) }
-      .toList
+    val validatedFieldNames = validateUniqueName(inObjVal.fields).map(_ => ())
 
-    schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
-      case None => MissingInputObjectTypeDefinition(inValDef.`type`.name) :: duplicateErrs
-      case Some(inObjTypeDef) =>
-        // 5.6.4 input objects required fields
-        val requiredErrs = inObjTypeDef.fields
-          .filter(_.`type`.isInstanceOf[NonNullType])
-          .map(_.name)
-          .flatMap(name =>
-            inObjVal.fields.find(_.name == name) match
-              case None    => List(MissingField(name, NamedType(inObjTypeDef.name)))
-              case Some(_) => Nil
+    val validatedInObjVal =
+      schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
+        case None =>
+          val validatedTypeDef = MissingDefinition(inValDef.`type`.name).invalidNec[Unit]
+          validatedFieldNames combine validatedTypeDef
+        case Some(inObjTypeDef) =>
+          // 5.6.4 input objects required fields
+          val validatedRequiredFields = inObjTypeDef.fields
+            .filter(_.`type`.isInstanceOf[NonNullType])
+            .map(_.name)
+            .map(name =>
+              inObjVal.fields.find(_.name == name) match
+                case None    => MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec
+                case Some(_) => ().validNec
+            )
+            .reduceLeft(_ combine _)
+
+          recurse(
+            inObjVal.fields.map(_ -> inObjTypeDef),
+            validatedFieldNames combine validatedRequiredFields
           )
 
-        recurse(inObjVal.fields.map(_ -> inObjTypeDef), duplicateErrs ::: requiredErrs)
+    validatedInObjVal.map(_ => inObjVal)
   end validateInputObjectValue
 
   /** Validate a fields arguments
@@ -273,37 +291,41 @@ object DocumentValidator:
   def validateArguments(
       field: Field,
       fieldDef: FieldDefinition,
-      parentType: NamedType,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
+      parentType: NamedType
+  )(using schema: TypeSystemDocument): Validated[List[Argument]] =
+    println(field)
+    println(fieldDef)
+    println("--------++++++++--------")
     // TODO: Choose better name for this
-    val argErrors =
-      field.arguments
-        .flatMap {
-          case Argument(name, objVal: ObjectValue) =>
-            // 5.4.1 args exist
-            // TODO: Include directives in this
-            fieldDef.arguments.find(_.name == name) match
-              case None => MissingArgumentDefinition(name, field.name, parentType) :: Nil
-              case Some(inValDef) =>
-                validateInputObjectValue(objVal, inValDef, schema)
+    val validatedArgs =
+      field.arguments.map {
+        case Argument(name, objVal: ObjectValue) =>
+          // 5.4.1 args exist
+          // TODO: Include directives in this
+          fieldDef.arguments.find(_.name == name) match
+            case None =>
+              MissingDefinition(
+                name,
+                Some(s"in field ${field.name} defined in type ${parentType}")
+              ).invalidNec
+            case Some(inValDef) =>
+              validateInputObjectValue(objVal, inValDef).map(_ => ())
 
-          case Argument(name, _) =>
-            // 5.4.1 args exist
-            // TODO: Include directives in this
-            fieldDef.arguments.find(_.name == name) match
-              case None => MissingArgumentDefinition(name, field.name, parentType) :: Nil
-              case _    => Nil
-        }
+        case Argument(name, _) =>
+          // 5.4.1 args exist
+          // TODO: Include directives in this
+          fieldDef.arguments.find(_.name == name) match
+            case None =>
+              MissingDefinition(
+                name,
+                Some(s"in field ${field.name} defined in type ${parentType}")
+              ).invalidNec
+            case _ => ().validNec
+      }.combineAll
 
     // 5.4.2 args are unique
     // TODO: Include directives in this
-    val argUniquenessErrors =
-      field.arguments
-        .groupBy(_.name)
-        .filter { case (argName, args) => args.size > 1 }
-        .map { case (argName, _) => DuplicateArgument(argName, field.name, parentType) }
-        .toList
+    val validatedArgNames = validateUniqueName(field.arguments).map(_ => ())
 
     // 5.4.2.1 required args
     // TODO: Include directives in this
@@ -314,11 +336,21 @@ object DocumentValidator:
           case _                                                => false
         }
         .map(_.name)
-    val requiredArgErrors = requiredArgs
-      .filter(argName => field.arguments.find(_.name == argName).isEmpty)
-      .map(argName => MissingArgument(argName, field.name, parentType))
+    val validatedRequiredArgs =
+      requiredArgs
+        .map(argName =>
+          field.arguments.find(_.name == argName) match
+            case None    => MissingArgument2(argName, Some(s"field.name, parentType")).invalidNec
+            case Some(_) => ().validNec
+        )
+        .reduceOption(_ combine _)
+        .getOrElse(().validNec)
 
-    argErrors ::: argUniquenessErrors ::: requiredArgErrors
+    (
+      validatedArgs,
+      validatedArgNames,
+      validatedRequiredArgs
+    ).mapN((v1, v2, v3) => field.arguments)
   end validateArguments
 
   /** Performs various validation steps on selection sets. Bear in mind that this function will not
@@ -338,160 +370,254 @@ object DocumentValidator:
     */
   private def validateSelectionSet(
       selectionSet: List[Selection],
-      parentType: NamedType,
-      doc: ExecutableDocument,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
+      parentType: NamedType
+  )(using schema: TypeSystemDocument, doc: ExecutableDocument): Validated[List[Selection]] =
     @tailrec
     def recurse(
         accSelectionSet: List[(NamedType, Selection)],
-        accErrs: List[GqlError] = Nil
-    ): List[GqlError] =
+        acc: Validated[Unit]
+    ): Validated[Unit] =
       accSelectionSet match
-        case Nil => accErrs
+        case Nil => acc
         case (parentType, selection) :: tail =>
           selection match
             case field @ Field(_, fieldName, arguments, _, selectionSet) =>
               // 5.3.1 field selections must exist on object, interface and union types
               schema.findFieldDef(fieldName, parentType) match
-                case None => MissingField(fieldName, parentType) :: accErrs
+                case None =>
+                  val validatedField = MissingField2(fieldName, parentType).invalidNec
+                  validatedField combine acc
                 case Some(fieldDef) =>
-                  val argErrs = validateArguments(field, fieldDef, parentType, schema)
-                  val errors  = argErrs ::: accErrs
+                  val validatedArgs = validateArguments(field, fieldDef, parentType).map(_ => ())
+                  // val errors  = argErrs ::: accErrs
 
                   val fieldType: NamedType = NamedType(fieldDef.`type`.name)
                   schema.findTypeDef[TypeDefinition](fieldType.name) match
-                    case None => recurse(tail, MissingTypeDefinition(fieldType) :: errors)
+                    case None =>
+                      val validatedDef = MissingTypeDefinition(fieldType).invalidNec
+                      recurse(tail, validatedDef combine acc)
 
                     // We found it but it's a leaf type so we can't recurse into its children,
                     // instead just carry on with the parent types other selections (tail)
                     case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) =>
                       // 5.3.3 leaf field selection validation
-                      if selectionSet.isEmpty then recurse(tail, errors)
-                      else recurse(tail, IllegalSelection(fieldName, parentType) :: errors)
+                      if selectionSet.isEmpty then recurse(tail, validatedArgs combine acc)
+                      else
+                        val validatedSelection = InvalidSelection(fieldName, parentType).invalidNec
+                        recurse(
+                          tail,
+                          validatedArgs combine validatedSelection combine acc
+                        )
 
                     // We found an object type so we need to recurse
                     case Some(typeDef) =>
                       // 5.3.3 leaf field selection validation
-                      if selectionSet.isEmpty then MissingSelection(fieldName, parentType) :: errors
+                      if selectionSet.isEmpty then
+                        val validatedSelection = MissingSelection2(fieldName, parentType).invalidNec
+                        validatedArgs combine validatedSelection combine acc
                       else
                         val typeAndSelection = selectionSet.map(NamedType(typeDef.name) -> _)
-                        recurse(typeAndSelection ::: tail, errors)
+                        recurse(typeAndSelection ::: tail, validatedArgs combine acc)
                   end match
 
             case InlineFragment(Some(onType), _, selectionSet) =>
-              val typeErrs         = validateObjectLikeTypeDefExists(onType, schema)
+              val validatedTypeDef = validateObjectLikeTypeDefExists(onType).map(_ => ())
               val typeAndSelection = selectionSet.map(onType -> _).toList
 
               // 5.5.2.3.1
-              val spreadTypeErr = if onType == parentType then None else Some(IllegalType(onType))
+              val validatedSpread =
+                if onType == parentType then ().validNec[GqlError]
+                else InvalidType(onType).invalidNec
 
-              recurse(typeAndSelection ::: tail, typeErrs ::: accErrs)
+              recurse(
+                typeAndSelection ::: tail,
+                validatedTypeDef combine validatedSpread combine acc
+              )
 
             // Type name has been omitted so this inline fragment has the same type as enclosing
             // context (e.g. the current parentType)
             case InlineFragment(None, _, selectionSet) =>
-              val typeErrs         = validateObjectLikeTypeDefExists(parentType, schema)
+              val validatedTypeDef = validateObjectLikeTypeDefExists(parentType).map(_ => ())
               val typeAndSelection = selectionSet.map(parentType -> _).toList
-              recurse(typeAndSelection ::: tail, typeErrs ::: accErrs)
+              recurse(typeAndSelection ::: tail, validatedTypeDef combine acc)
 
             // Fragment definitions have already been validated by this point so you only need to
             // check if the fragment definition exists, there's no need to step into the defintion
             case FragmentSpread(name, _) =>
               // 5.5.2.1 Fragment definition must exist
               doc.findFragDef(name) match
-                case None => recurse(tail, MissingFragmentDefinition(name) :: accErrs)
-                case _    => recurse(tail, accErrs)
+                case None =>
+                  val validatedFragDef = MissingDefinition(name).invalidNec
+                  recurse(tail, validatedFragDef combine acc)
+                case _ => recurse(tail, acc)
     end recurse
 
-    recurse(selectionSet.map(parentType -> _))
+    recurse(selectionSet.map(parentType -> _), ().validNec).map(_ => selectionSet)
   end validateSelectionSet
 
   private def validateOperationDefinition(
       opDef: OperationDefinition,
-      fragDefReqs: FragDefReqsTable,
-      doc: ExecutableDocument,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
+      fragDefReqs: FragDefReqsTable
+  )(using
+      schema: TypeSystemDocument,
+      doc: ExecutableDocument
+  ): Validated[OperationDefinition] =
     val opDefReqs = findOpDefReqs(opDef, fragDefReqs)
 
     // 5.8.1 unique variables
-    val duplicateVarErrs = opDef.variableDefinitions
-      .groupBy(_.name)
-      .flatMap {
-        case (name, vars) if vars.length > 1 => List(DuplicateVariable(name))
-        case _                               => Nil
-      }
-      .toList
+    val validatedVariableNames = validateUniqueName(opDef.variableDefinitions)
+
+    println(opDef.variableDefinitions)
 
     // 5.8.2 variable type must be an input type
-    val inputTypeErrs = opDef.variableDefinitions
-      .filter(varDef => !schema.isInputType(varDef.`type`))
-      .map(varDef => IllegalType(varDef.`type`))
+    val validatedVariableTypes =
+      opDef.variableDefinitions
+        .map(varDef =>
+          if schema.isInputType(varDef.`type`) then ().validNec
+          else InvalidType(varDef.`type`).invalidNec
+        )
+        .reduceOption(_ combine _)
+        .getOrElse(().validNec)
 
     // 5.8.3 variable uses defined
-    val varDefinedErrs = opDefReqs
-      .flatMap(variable =>
-        if opDef.variableDefinitions.exists(_.name == variable.name) then None
-        else Some(MissingVariable(variable.name))
-      )
-      .toList
+    val validatedVariablesDefined =
+      opDefReqs
+        .map(variable =>
+          if opDef.variableDefinitions.exists(_.name == variable.name) then ().validNec
+          else MissingVariable2(variable.name).invalidNec
+        )
+        .reduceOption(_ combine _)
+        .getOrElse(().validNec)
 
     // 5.8.4 all variables used
-    val unusedVarErrs = opDef.variableDefinitions.flatMap(varDef =>
-      if opDefReqs.exists(_.name == varDef.name) then None
-      else Some(UnusedVariable(varDef.name))
-    )
+    val validatedVariablesUsed = opDef.variableDefinitions
+      .map(varDef =>
+        if opDefReqs.exists(_.name == varDef.name) then ().validNec
+        else UnusedDefinition(varDef.name).invalidNec
+      )
+      .reduceOption(_ combine _)
+      .getOrElse(().validNec)
 
-    val selectionSetErrs = schema.findOpTypeDef(opDef.operationType) match
-      case None => MissingOperationTypeDefinition(opDef.operationType) :: Nil
-      case Some(typeDef) =>
-        validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), doc, schema)
+    val validatedSelectionSets = schema.findOpTypeDef(opDef.operationType) match
+      case None =>
+        MissingDefinition(Name("")).invalidNec // TODO: Need to handle non named type defs somehow
+      case Some(typeDef) => validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name))
 
-    duplicateVarErrs ::: inputTypeErrs ::: varDefinedErrs ::: unusedVarErrs ::: selectionSetErrs
+    (
+      validatedVariableNames,
+      validatedVariableTypes,
+      validatedVariablesDefined,
+      validatedVariablesUsed,
+      validatedSelectionSets
+    ).mapN((_, _, _, _, _) => opDef)
   end validateOperationDefinition
 
   private def validateFragmentDefinition(
-      fragDef: FragmentDefinition,
-      doc: ExecutableDocument,
-      schema: TypeSystemDocument
-  ): List[GqlError] =
-    val selectionErrs = validateSelectionSet(fragDef.selectionSet.toList, fragDef.on, doc, schema)
-    val typeErrs      = validateObjectLikeTypeDefExists(fragDef.on, schema)
-    selectionErrs ::: typeErrs
+      fragDef: FragmentDefinition
+  )(using doc: ExecutableDocument, schema: TypeSystemDocument): Validated[FragmentDefinition] =
+    (
+      validateSelectionSet(fragDef.selectionSet.toList, fragDef.on),
+      validateObjectLikeTypeDefExists(fragDef.on)
+    ).mapN((_, _) => fragDef)
+  end validateFragmentDefinition
+
+  private def validateAnonymousOperationDefinition(
+      namedOps: List[OperationDefinition],
+      anonOps: List[OperationDefinition]
+  ): Validated[Unit] =
+    if anonOps.length > 1 then
+      OperationDefinitionError(Some("multiple anonymous definitions")).invalidNec
+    else if anonOps.length == 1 && !namedOps.isEmpty then
+      OperationDefinitionError(Some("Anonymous operation not alone")).invalidNec
+    else ().validNec
+  end validateAnonymousOperationDefinition
 
   private def validateOperationDefinitions(
-      fragDefReqs: FragDefReqsTable,
+      fragDefReqs: FragDefReqsTable
+  )(using
       doc: ExecutableDocument,
       schema: TypeSystemDocument
-  ): List[GqlError] =
-    val opDefs = doc.definitions.collect { case o: OperationDefinition => o }
+  ): Validated[List[OperationDefinition]] =
+    val opDefs   = doc.findExecDef[OperationDefinition]
+    val namedOps = opDefs.filter(_.name.text.nonEmpty)
+    val anonOps  = opDefs.filter(_.name.text.isEmpty)
 
-    // 5.2.1.1 unique operation names
-    val uniquenessErrs = opDefs
-      .groupBy(_.name)
-      .filter { case name -> xs => name.isDefined && xs.length > 1 }
-      .map { case name -> _ => DuplicateOperationDefinition(name.get) }
-      .toList
+    val validatedOpDefs =
+      opDefs
+        .map(validateOperationDefinition(_, fragDefReqs).map(List(_)))
+        .reduceOption(_ combine _)
+        .getOrElse(Nil.validNec)
 
-    // 5.2.2.1 Lone anonymous operation
-    val namedOps = opDefs.filter(_.name.isDefined)
-    val anonOps  = opDefs.filter(_.name.isEmpty)
-    val loneAnonErrs =
-      if anonOps.length > 1 then MultipleAnonymousQueries :: Nil
-      else if anonOps.length == 1 && !namedOps.isEmpty then AnonymousQueryNotAlone :: Nil
-      else Nil
+    (
+      // 5.2.1.1 unique operation names
+      validateUniqueName(opDefs),
 
-    val errs = opDefs.flatMap(validateOperationDefinition(_, fragDefReqs, doc, schema))
+      // 5.2.2.1 Lone anonymous operation
+      validateAnonymousOperationDefinition(namedOps, anonOps),
 
-    uniquenessErrs ::: loneAnonErrs ::: errs
+      // validate each operation definition
+      validatedOpDefs
+    ).mapN((_, _, validatedOpDefs) => opDefs)
+
+    // // 5.2.1.1 unique operation names
+    // val uniquenessErrs = opDefs
+    //   .groupBy(_.name)
+    //   .filter { case name -> xs => name.isDefined && xs.length > 1 }
+    //   .map { case name -> _ => DuplicateOperationDefinition(name.get) }
+    //   .toList
+
+    // // 5.2.2.1 Lone anonymous operation
+    // val namedOps = opDefs.filter(_.name.isDefined)
+    // val anonOps  = opDefs.filter(_.name.isEmpty)
+    // val loneAnonErrs =
+    //   if anonOps.length > 1 then MultipleAnonymousQueries :: Nil
+    //   else if anonOps.length == 1 && !namedOps.isEmpty then AnonymousQueryNotAlone :: Nil
+    //   else Nil
+
+    // val errs = opDefs.flatMap(validateOperationDefinition(_, fragDefReqs, doc, schema))
+
+    // uniquenessErrs ::: loneAnonErrs ::: errs
   end validateOperationDefinitions
 
-  private def validateFragmentDefinitions(
-      doc: ExecutableDocument,
-      schema: TypeSystemDocument
-  ): Either[List[GqlError], FragDefReqsTable] =
-    val fragDefs = doc.definitions.collect { case o: FragmentDefinition => o }
+  private def validateFragDefsExist[T <: HasName](
+      sortedGraph: DependencyGraph[T]
+  ): Validated[List[Name]] =
+    sortedGraph.toList
+      .traverse { case (name, deps) =>
+        deps.toList.traverse(depName =>
+          if sortedGraph.exists((fragDef, _) => fragDef.name == depName) then depName.validNec
+          else MissingDefinition(depName).invalidNec
+        )
+      }
+      .map(_.flatten)
+
+  private def validateFragmentDefinitions(using
+      schema: TypeSystemDocument,
+      doc: ExecutableDocument
+  ): Validated[FragDefReqsTable] =
+    val fragDefs = doc.findExecDef[FragmentDefinition]
+
+    // 5.5.2.2 Fragment definitions must not contain cycles
+    // topologically sorting the fragment dependency graph will find cycles and provide an order to
+    // find fragment definition requirements
+    topologicalSort(buildFragDefDepGraph(fragDefs))
+      .andThen(sortedGraph =>
+        (
+          // 5.5.1.1 fragment definition unique name
+          validateUniqueName(fragDefs),
+
+          // 5.5.1.4 Fragment definitions must be used
+          validateIsUsed(fragDefs, doc.findFragSpreads()),
+
+          // 5.5.2.1 Fragment definition must exist
+          validateFragDefsExist(sortedGraph)
+        ).mapN((_, _, _) =>
+          if sortedGraph.isEmpty then Map.empty
+          else
+            val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
+            findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
+        )
+      )
 
     // 5.5.2.2 Fragment definitions must not contain cycles
     // topologically sorting the fragment dependency graph will find cycles and provide an order to
@@ -542,28 +668,31 @@ object DocumentValidator:
     //             .asRight
     //       case errs => errs.asLeft
     //   )
-    ???
   end validateFragmentDefinitions
 
-  def validate(
-      doc: ExecutableDocument,
-      schema: TypeSystemDocument
-  ): Either[NonEmptyList[GqlError], ExecutableDocument] =
+  def validate(doc: ExecutableDocument)(using TypeSystemDocument): Validated[ExecutableDocument] =
+    given ExecutableDocument = doc
+
     // 5.1.1
     // This is implied by the fact that the validate function expects doc to be an ExecutableDocument
 
-    val fragmentErrs = validateFragmentDefinitions(doc, schema)
+    validateFragmentDefinitions.andThen(reqs =>
+      (
+        validateOperationDefinitions(reqs),
+        validateSubscriptionsHaveSingleRoot
+      ).mapN((_, _) => doc)
+    )
 
     // if any fragment errs exist then bail and return them
-    fragmentErrs match
-      case Left(errs) => NonEmptyList.fromListUnsafe(errs).asLeft
-      case Right(reqs) =>
-        val operationErrs    = validateOperationDefinitions(reqs, doc, schema)
-        val subscriptionErrs = validateSubscriptionsHaveSingleRoot(doc)
-        val errs             = operationErrs ::: subscriptionErrs
-        errs match
-          case Nil  => doc.asRight
-          case errs => NonEmptyList.fromListUnsafe(errs).asLeft
+    // fragmentErrs match
+    //   case Left(errs) => NonEmptyList.fromListUnsafe(errs).asLeft
+    //   case Right(reqs) =>
+    //     val operationErrs    = validateOperationDefinitions(reqs, doc, schema)
+    //     val subscriptionErrs = validateSubscriptionsHaveSingleRoot(doc)
+    //     val errs             = operationErrs ::: subscriptionErrs
+    //     errs match
+    //       case Nil  => doc.asRight
+    //       case errs => NonEmptyList.fromListUnsafe(errs).asLeft
   end validate
 
 // 5.3.2

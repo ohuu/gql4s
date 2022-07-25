@@ -5,8 +5,10 @@
 package gql4s
 
 import cats.data.NonEmptyList
-import Type.*
-import Value.*
+import parsing.*
+
+import parsing.Type.*
+import parsing.Value.*
 
 val schemaStr = """
   type Query {
@@ -76,8 +78,8 @@ val schemaStr = """
   }
 """
 
-val schemaDoc = TypeSystemDocument(definitions =
-  NonEmptyList.of(
+given schemaDoc: TypeSystemDocument = TypeSystemDocument(
+  definitions = NonEmptyList.of(
     ObjectTypeDefinition(
       Name("Query"),
       Nil,
