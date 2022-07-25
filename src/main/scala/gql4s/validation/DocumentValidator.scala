@@ -293,9 +293,6 @@ object DocumentValidator:
       fieldDef: FieldDefinition,
       parentType: NamedType
   )(using schema: TypeSystemDocument): Validated[List[Argument]] =
-    println(field)
-    println(fieldDef)
-    println("--------++++++++--------")
     // TODO: Choose better name for this
     val validatedArgs =
       field.arguments.map {
@@ -467,8 +464,6 @@ object DocumentValidator:
     // 5.8.1 unique variables
     val validatedVariableNames = validateUniqueName(opDef.variableDefinitions)
 
-    println(opDef.variableDefinitions)
-
     // 5.8.2 variable type must be an input type
     val validatedVariableTypes =
       opDef.variableDefinitions
@@ -501,7 +496,8 @@ object DocumentValidator:
     val validatedSelectionSets = schema.findOpTypeDef(opDef.operationType) match
       case None =>
         MissingDefinition(Name("")).invalidNec // TODO: Need to handle non named type defs somehow
-      case Some(typeDef) => validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name))
+      case Some(typeDef) =>
+        validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name))
 
     (
       validatedVariableNames,
@@ -558,25 +554,6 @@ object DocumentValidator:
       // validate each operation definition
       validatedOpDefs
     ).mapN((_, _, validatedOpDefs) => opDefs)
-
-    // // 5.2.1.1 unique operation names
-    // val uniquenessErrs = opDefs
-    //   .groupBy(_.name)
-    //   .filter { case name -> xs => name.isDefined && xs.length > 1 }
-    //   .map { case name -> _ => DuplicateOperationDefinition(name.get) }
-    //   .toList
-
-    // // 5.2.2.1 Lone anonymous operation
-    // val namedOps = opDefs.filter(_.name.isDefined)
-    // val anonOps  = opDefs.filter(_.name.isEmpty)
-    // val loneAnonErrs =
-    //   if anonOps.length > 1 then MultipleAnonymousQueries :: Nil
-    //   else if anonOps.length == 1 && !namedOps.isEmpty then AnonymousQueryNotAlone :: Nil
-    //   else Nil
-
-    // val errs = opDefs.flatMap(validateOperationDefinition(_, fragDefReqs, doc, schema))
-
-    // uniquenessErrs ::: loneAnonErrs ::: errs
   end validateOperationDefinitions
 
   private def validateFragDefsExist[T <: HasName](
@@ -590,6 +567,7 @@ object DocumentValidator:
         )
       }
       .map(_.flatten)
+  end validateFragDefsExist
 
   private def validateFragmentDefinitions(using
       schema: TypeSystemDocument,
@@ -610,64 +588,24 @@ object DocumentValidator:
           validateIsUsed(fragDefs, doc.findFragSpreads()),
 
           // 5.5.2.1 Fragment definition must exist
-          validateFragDefsExist(sortedGraph)
-        ).mapN((_, _, _) =>
+          validateFragDefsExist(sortedGraph),
+
+          // validate individual frag defs
+          fragDefs
+            .map(validateFragmentDefinition(_).map(List(_)))
+            .reduceOption(_ combine _)
+            .getOrElse(Nil.validNec)
+        ).mapN((_, _, _, _) =>
           if sortedGraph.isEmpty then Map.empty
           else
-            val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
-            findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
+            val sortedFragDefs  = sortedGraph.map((fragDef, _) => fragDef)
+            val rootFragDefReqs = findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
+            sortedFragDefs
+              .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
+                findFragDefReqs(fragDef, accReqs, doc)
+              )
         )
       )
-
-    // 5.5.2.2 Fragment definitions must not contain cycles
-    // topologically sorting the fragment dependency graph will find cycles and provide an order to
-    // find fragment definition requirements
-    // topologicalSort(buildFragDefDepGraph(fragDefs))
-    //   .flatMap(sortedGraph =>
-    //     // 5.5.1.1 fragment definition unique name
-    //     val uniquenessErrs = fragDefs
-    //       .groupBy(_.name)
-    //       .filter { case _ -> xs => xs.length > 1 }
-    //       .map { case (name, _) => DuplicateFragmentDefinition(name) }
-    //       .toList
-
-    //     // 5.5.1.4 Fragment definitions must be used
-    //     val fragDefNames = fragDefs.map(_.name)
-    //     val fragSpreads  = doc.findFragSpreads().map(_.name)
-    //     val unusedErrs = fragDefNames
-    //       .filterNot(fragSpreads.contains)
-    //       .map(UnusedFragment(_))
-
-    //     // 5.5.2.1 Fragment definition must exist
-    //     val missingFragDefErrs = sortedGraph
-    //       .flatMap((name, deps) =>
-    //         deps.flatMap(depName =>
-    //           if sortedGraph.exists((fragDef, _) => fragDef.name == depName) then None
-    //           else Some(MissingFragmentDefinition(depName))
-    //         )
-    //       )
-    //       .toList
-
-    //     val fragDefErrs = fragDefs.flatMap(validateFragmentDefinition(_, doc, schema))
-    //     val errs        = uniquenessErrs ::: unusedErrs ::: missingFragDefErrs ::: fragDefErrs
-
-    //     errs match
-    //       case Nil =>
-    //         if sortedGraph.isEmpty then Map.empty.asRight
-    //         else
-    //           // convert sorted graph to list of sorted frag defs
-    //           val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
-
-    //           val rootFragDefReqs =
-    //             findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
-
-    //           sortedFragDefs
-    //             .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
-    //               findFragDefReqs(fragDef, accReqs, doc)
-    //             )
-    //             .asRight
-    //       case errs => errs.asLeft
-    //   )
   end validateFragmentDefinitions
 
   def validate(doc: ExecutableDocument)(using TypeSystemDocument): Validated[ExecutableDocument] =
@@ -682,17 +620,6 @@ object DocumentValidator:
         validateSubscriptionsHaveSingleRoot
       ).mapN((_, _) => doc)
     )
-
-    // if any fragment errs exist then bail and return them
-    // fragmentErrs match
-    //   case Left(errs) => NonEmptyList.fromListUnsafe(errs).asLeft
-    //   case Right(reqs) =>
-    //     val operationErrs    = validateOperationDefinitions(reqs, doc, schema)
-    //     val subscriptionErrs = validateSubscriptionsHaveSingleRoot(doc)
-    //     val errs             = operationErrs ::: subscriptionErrs
-    //     errs match
-    //       case Nil  => doc.asRight
-    //       case errs => NonEmptyList.fromListUnsafe(errs).asLeft
   end validate
 
 // 5.3.2
