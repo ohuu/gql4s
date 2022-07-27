@@ -622,8 +622,69 @@ object DocumentValidator:
     )
   end validate
 
-// 5.3.2
-// TODO: Implement this validator.
+  // 5.3.2
+  // TODO: Can this be integrated into the normal traversal of the document
+  // def fieldsInSetCanMerge(
+  //     set: SelectionSet,
+  //     parentType: Type
+  // )(using doc: ExecutableDocument, schema: TypeSystemDocument): Boolean =
+  //   def pairs[T](xs: List[T]): List[(T, T)] =
+  //     val ps = for
+  //       i <- 0 until xs.length - 1
+  //       j <- (i + 1) until xs.length
+  //     yield (xs(i), xs(j))
+
+  //     ps.toList
+  //   end pairs
+
+  //   def getType(s: Selection, parentType: NamedType): Option[Type] = s match
+  //     case Field(_, name, _, _, _) =>
+  //       schema.findFieldDef(name, parentType).map(_.`type`)
+  //     case FragmentSpread(name, _) =>
+  //       doc.findFragDef(name).map(_.on)
+  //     case InlineFragment(onType, _, _) => onType
+  //   end getType
+
+  //   def fragToFieldNameMap(parentType: Type)(
+  //       frag: InlineFragment | FragmentSpread
+  //   ): Map[Name, List[(Selection, Type)]] =
+  //     val selectionSetWithType = frag match
+  //       case InlineFragment(None, _, selectionSet) => selectionSet.toList.map(_ -> parentType)
+  //       case InlineFragment(Some(onType), _, selectionSet) => selectionSet.toList.map(_ -> onType)
+  //       case FragmentSpread(name, _) =>
+  //         doc
+  //           .findFragDef(name)
+  //           .map(fragDef => fragDef.selectionSet.toList.map(_ -> fragDef.on))
+  //           .getOrElse(Nil)
+
+  //     selectionSetWithType
+  //       .map { case (selectionSet, parentType) =>
+  //         selectionToFieldNameMap(parentType)(selectionSet)
+  //       }
+  //       .reduceOption(_ combine _)
+  //       .getOrElse(Map.empty)
+  //   end fragToFieldNameMap
+
+  //   // TODO: Make this tail recursive
+  //   def selectionToFieldNameMap(parentType: Type)(
+  //       selection: Selection
+  //   ): Map[Name, List[(Selection, Type)]] = selection match
+  //     case field: Field         => Map(field.name -> List((field, parentType)))
+  //     case frag: InlineFragment => fragToFieldNameMap(parentType)(frag)
+  //     case frag: FragmentSpread => fragToFieldNameMap(parentType)(frag)
+  //   end selectionToFieldNameMap
+
+  //   def hasSameResponseShape(selA: Selection, selB: Selection): Boolean =
+  //     val typeA = getType(selA)
+  //   end hasSameResponseShape
+
+  //   val fieldToNameMap      = set.map(selectionToFieldNameMap(parentType)).reduceLeft(_ combine _)
+  //   val duplicateSelections = fieldToNameMap.values.flatMap(pairs).toList
+
+  //   val sameResponseShape = duplicateSelections.map(hasSameResponseShape.tupled)
+
+  //   ???
+  // end fieldsInSetCanMerge
 
 // 5.5.2.3.1
 // TODO: Implement this validator.
