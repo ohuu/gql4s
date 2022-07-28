@@ -60,6 +60,7 @@ enum GqlError:
   case InvalidName(name: Name, context: Option[String] = None)
   case InvalidType(`type`: Type, context: Option[String] = None)
   case InvalidNamedType(name: Name, context: Option[String] = None)
+  case InvalidFragment(name: Name, context: Option[String] = None)
   case InvalidSelection(fieldName: Name, namedType: NamedType, context: Option[String] = None)
   case CycleDetected(cycle: Name, context: Option[String] = None)
   case OperationDefinitionError(context: Option[String] = None)

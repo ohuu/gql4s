@@ -22,10 +22,9 @@ def validateUniqueName[T <: HasName](ts: List[T]): Validated[List[T]] = ts
     case (name, _)             => DuplicateName(name).invalidNec
   }
 
-def validateIsUsed[T <: HasName](definitions: List[T], references: List[T]): Validated[List[T]] =
-  val refNames = references.map(_.name)
+def validateIsUsed(definitions: List[Name], references: List[Name]): Validated[List[Name]] =
   definitions
     .traverse(definition =>
-      if refNames.contains(definition.name) then definition.validNec
-      else UnusedDefinition(definition.name).invalidNec
+      if references.contains(definition) then definition.validNec
+      else UnusedDefinition(definition).invalidNec
     )

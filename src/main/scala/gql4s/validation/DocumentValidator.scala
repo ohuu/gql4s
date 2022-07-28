@@ -30,11 +30,11 @@ object DocumentValidator:
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // Helper Functions
   /** Builds a table of variables required to execute the given fragment definition */
+  // TODO: URGENT What the fuck does this function do??
   def findFragDefReqs(
-      fragDef: FragmentDefinition,
-      depReqs: FragDefReqsTable,
-      doc: ExecutableDocument
-  ): FragDefReqsTable =
+      fragDef: FragmentDefinition
+      // depReqs: FragDefReqsTable
+  )(using doc: ExecutableDocument): FragDefReqsTable =
     @tailrec
     def recurse(
         accSelectionSets: List[(Name, Selection)],
@@ -67,7 +67,11 @@ object DocumentValidator:
                   recurse(tail, accReqs)
 
                 case Some(fragDef) =>
-                  recurse(tail, accReqs + (fragDef.name -> depReqs(fragDef.name)))
+                  val accSelectionSet = fragDef.selectionSet.toList.map(fragDefName -> _)
+                  recurse(
+                    accSelectionSet ::: tail,
+                    accReqs + (fragDef.name -> Set.empty /*depReqs.getOrElse(fragDef.name, Set.empty)*/ )
+                  )
           end match
       end match
     end recurse
@@ -421,36 +425,64 @@ object DocumentValidator:
               val validatedTypeDef = validateObjectLikeTypeDefExists(onType).map(_ => ())
               val typeAndSelection = selectionSet.map(onType -> _).toList
 
-              // 5.5.2.3.1
-              val validatedSpread =
-                if onType == parentType then ().validNec[GqlError]
-                else InvalidType(onType).invalidNec
-
-              recurse(
-                typeAndSelection ::: tail,
-                validatedTypeDef combine validatedSpread combine acc
-              )
+              // 5.5.2.3.1 Fragment spread type is valid if it's the same type as the parent type (same scope)
+              // 5.5.2.3.2
+              // 5.5.2.3.3
+              val isSame = onType == parentType
+              val isImplementation =
+                SchemaValidator.validateCovariant(parentType, onType).isValid || SchemaValidator
+                  .validateCovariant(onType, parentType)
+                  .isValid
+              if !(isSame || isImplementation) then InvalidFragment(onType.name).invalidNec
+              else recurse(typeAndSelection ::: tail, validatedTypeDef combine acc)
 
             // Type name has been omitted so this inline fragment has the same type as enclosing
             // context (e.g. the current parentType)
             case InlineFragment(None, _, selectionSet) =>
               val validatedTypeDef = validateObjectLikeTypeDefExists(parentType).map(_ => ())
               val typeAndSelection = selectionSet.map(parentType -> _).toList
+
+              // no need for 5.5.2.3.x because in the case that no type is given, by definition
+              // the type of the fragment IS the type of the parent and therefore 5.5.2.3.1 is
+              // satisfied.
+
               recurse(typeAndSelection ::: tail, validatedTypeDef combine acc)
 
             // Fragment definitions have already been validated by this point so you only need to
             // check if the fragment definition exists, there's no need to step into the defintion
             case FragmentSpread(name, _) =>
-              // 5.5.2.1 Fragment definition must exist
               doc.findFragDef(name) match
                 case None =>
+                  // 5.5.2.1 Fragment definition must exist
                   val validatedFragDef = MissingDefinition(name).invalidNec
                   recurse(tail, validatedFragDef combine acc)
-                case _ => recurse(tail, acc)
+
+                case Some(fragDef) =>
+                  // 5.5.2.3.1 Fragment spread must be same type as parent type (same scope)
+                  // 5.5.2.3.2
+                  // 5.5.2.3.3
+                  // TODO: Factor this into it's own function
+                  val isSame = fragDef.on == parentType
+                  val isImplementation =
+                    SchemaValidator.validateCovariant(parentType, fragDef.on).isValid ||
+                      SchemaValidator.validateCovariant(fragDef.on, parentType).isValid
+                  if !(isSame || isImplementation) then InvalidFragment(fragDef.on.name).invalidNec
+                  else recurse(tail, acc)
     end recurse
 
     recurse(selectionSet.map(parentType -> _), ().validNec).map(_ => selectionSet)
   end validateSelectionSet
+
+  private def validateAnonymousOperationDefinition(
+      namedOps: List[OperationDefinition],
+      anonOps: List[OperationDefinition]
+  ): Validated[Unit] =
+    if anonOps.length > 1 then
+      OperationDefinitionError(Some("multiple anonymous definitions")).invalidNec
+    else if anonOps.length == 1 && !namedOps.isEmpty then
+      OperationDefinitionError(Some("Anonymous operation not alone")).invalidNec
+    else ().validNec
+  end validateAnonymousOperationDefinition
 
   private def validateOperationDefinition(
       opDef: OperationDefinition,
@@ -508,26 +540,6 @@ object DocumentValidator:
     ).mapN((_, _, _, _, _) => opDef)
   end validateOperationDefinition
 
-  private def validateFragmentDefinition(
-      fragDef: FragmentDefinition
-  )(using doc: ExecutableDocument, schema: TypeSystemDocument): Validated[FragmentDefinition] =
-    (
-      validateSelectionSet(fragDef.selectionSet.toList, fragDef.on),
-      validateObjectLikeTypeDefExists(fragDef.on)
-    ).mapN((_, _) => fragDef)
-  end validateFragmentDefinition
-
-  private def validateAnonymousOperationDefinition(
-      namedOps: List[OperationDefinition],
-      anonOps: List[OperationDefinition]
-  ): Validated[Unit] =
-    if anonOps.length > 1 then
-      OperationDefinitionError(Some("multiple anonymous definitions")).invalidNec
-    else if anonOps.length == 1 && !namedOps.isEmpty then
-      OperationDefinitionError(Some("Anonymous operation not alone")).invalidNec
-    else ().validNec
-  end validateAnonymousOperationDefinition
-
   private def validateOperationDefinitions(
       fragDefReqs: FragDefReqsTable
   )(using
@@ -569,6 +581,15 @@ object DocumentValidator:
       .map(_.flatten)
   end validateFragDefsExist
 
+  private def validateFragmentDefinition(
+      fragDef: FragmentDefinition
+  )(using doc: ExecutableDocument, schema: TypeSystemDocument): Validated[FragmentDefinition] =
+    (
+      validateSelectionSet(fragDef.selectionSet.toList, fragDef.on),
+      validateObjectLikeTypeDefExists(fragDef.on)
+    ).mapN((_, _) => fragDef)
+  end validateFragmentDefinition
+
   private def validateFragmentDefinitions(using
       schema: TypeSystemDocument,
       doc: ExecutableDocument
@@ -580,12 +601,23 @@ object DocumentValidator:
     // find fragment definition requirements
     topologicalSort(buildFragDefDepGraph(fragDefs))
       .andThen(sortedGraph =>
+
+        // TODO: factor this out to a function named findAllFragmentUses
+        //       pre map the sortedgraph
+        val fragmentUses =
+          doc
+            .findFragSpreads()
+            .map(_.name)
+            .flatMap(name =>
+              name :: sortedGraph.map((k, v) => (k.name, v.toList)).getOrElse(name, Nil)
+            )
+
         (
           // 5.5.1.1 fragment definition unique name
           validateUniqueName(fragDefs),
 
           // 5.5.1.4 Fragment definitions must be used
-          validateIsUsed(fragDefs, doc.findFragSpreads()),
+          validateIsUsed(fragDefs.map(_.name), fragmentUses),
 
           // 5.5.2.1 Fragment definition must exist
           validateFragDefsExist(sortedGraph),
@@ -598,12 +630,8 @@ object DocumentValidator:
         ).mapN((_, _, _, _) =>
           if sortedGraph.isEmpty then Map.empty
           else
-            val sortedFragDefs  = sortedGraph.map((fragDef, _) => fragDef)
-            val rootFragDefReqs = findFragDefReqs(sortedFragDefs.head, Map.empty, doc)
-            sortedFragDefs
-              .foldLeft(rootFragDefReqs)((accReqs, fragDef) =>
-                findFragDefReqs(fragDef, accReqs, doc)
-              )
+            val sortedFragDefs = sortedGraph.map((fragDef, _) => fragDef)
+            findFragDefReqs(sortedFragDefs.head)
         )
       )
   end validateFragmentDefinitions
@@ -687,13 +715,13 @@ object DocumentValidator:
   // end fieldsInSetCanMerge
 
 // 5.5.2.3.1
-// TODO: Implement this validator.
+// TODO: Implement this validator. ✔️✔️
 
 // 5.5.2.3.2
-// TODO: Implement this validator.
+// TODO: Implement this validator. ✔️✔️
 
 // 5.5.2.3.3
-// TODO: Implement this validator.
+// TODO: Implement this validator. ✔️✔️
 
 // 5.5.2.3.4
 // TODO: Implement this validator.
