@@ -16,6 +16,8 @@ import errors.GqlError.*
 import parsing.*
 import parsing.Type.*
 
+import TypeSystemDirectiveLocation as TSDL
+
 object SchemaValidator:
   case class ValidSchema(
       schema: TypeSystemDocument,
@@ -56,8 +58,8 @@ object SchemaValidator:
   // TODO: Type test for K can't be performed at runtime. Is this a problem?
   def validateTypeExists[K <: TypeDefinition](
       t: Type
-  )(using TypeSystemDocument, TypeTest[Any, K]): Validated[K] =
-    summon[TypeSystemDocument].findTypeDef[K](t.name) match
+  )(using schema: TypeSystemDocument, tt: TypeTest[Any, K]): Validated[K] =
+    schema.findTypeDef[K](t.name) match
       case Some(typeDef) => typeDef.validNec
       case None          => MissingDefinition(t.name).invalidNec
 
@@ -94,7 +96,7 @@ object SchemaValidator:
     if a.`type` == b.`type` then a.validNec
     else InvalidType(a.`type`).invalidNec
 
-  def validateCovariant(a: Type, b: Type)(using TypeSystemDocument): Validated[Type] =
+  def validateCovariant(a: Type, b: Type)(using schema: TypeSystemDocument): Validated[Type] =
     @tailrec
     def validate(aType: Type, bType: Type): Boolean =
       (aType, bType) match
@@ -103,8 +105,8 @@ object SchemaValidator:
         case (ListType(a), ListType(b))       => validate(a, b)
         case (ListType(a), b)                 => false
         case (a: NamedType, b: NamedType) =>
-          val aTypeDef = summon[TypeSystemDocument].findTypeDef[TypeDefinition](a.name)
-          val bTypeDef = summon[TypeSystemDocument].findTypeDef[TypeDefinition](b.name)
+          val aTypeDef = schema.findTypeDef[TypeDefinition](a.name)
+          val bTypeDef = schema.findTypeDef[TypeDefinition](b.name)
 
           (aTypeDef, bTypeDef) match
             case (Some(a), Some(b)) if a.name == b.name => true
@@ -160,16 +162,17 @@ object SchemaValidator:
     .map(_ => a)
   end validateFields
 
-  /** Checks whether the given type {@a} is a valid implementation of {@b}
-    *
-    * See
-    * https://github.com/graphql/graphql-spec/blame/October2021/spec/Section%203%20--%20Type%20System.md#L886-L906
-    *
-    * @param a
-    *   The type we are checking correctly implements implementedType
-    * @param implementedType
-    *   The type that we're checking against
-    */
+  /**
+   * Checks whether the given type {@a} is a valid implementation of {@b}
+   *
+   * See
+   * https://github.com/graphql/graphql-spec/blame/October2021/spec/Section%203%20--%20Type%20System.md#L886-L906
+   *
+   * @param a
+   *   The type we are checking correctly implements implementedType
+   * @param implementedType
+   *   The type that we're checking against
+   */
   def validateImplementation[T <: HasName & HasFields & HasInterfaces](a: T, b: T)(using
       TypeSystemDocument
   ): Validated[T] =
@@ -179,19 +182,20 @@ object SchemaValidator:
     ).mapN((validImpls, validFields) => a)
   end validateImplementation
 
-  /** Validates both object and interface types according to the `Type Validation` sections defined
-    * in the GraphQL specification for object and interface types.
-    *
-    * @param tpe
-    *   The object like type to validate.
-    * @param schema
-    *   The schema this type is defined in.
-    * @return
-    *   A list of errors, nil if no errors are found.
-    */
+  /**
+   * Validates both object and interface types according to the `Type Validation` sections defined
+   * in the GraphQL specification for object and interface types.
+   *
+   * @param tpe
+   *   The object like type to validate.
+   * @param schema
+   *   The schema this type is defined in.
+   * @return
+   *   A list of errors, nil if no errors are found.
+   */
   def validateObjLike[T <: ObjectLikeTypeDefinition](typeDef: T)(using
-      TypeSystemDocument,
-      TypeTest[Any, T]
+      schema: TypeSystemDocument,
+      tt: TypeTest[Any, T]
   ): Validated[T] =
     // 3.6.1 Object like types must define one or more fields
     // 3.6.2.1 Fields must have unique names within the Object type
@@ -204,25 +208,19 @@ object SchemaValidator:
     // 3.6.4 An object type must be a super-set of all interfaces it implements
     // respectively
     (
+      validateDirectives(typeDef.directives, TSDL./* fuck! */)
       validateNotEmpty(typeDef.fields),
       validateUniqueName(typeDef.fields),
       validateNames(typeDef.fields),
-      validateTypes(typeDef.fields, summon[TypeSystemDocument].isOutputType),
+      validateTypes(typeDef.fields, schema.isOutputType),
       validateNames(typeDef.fields.flatMap(_.arguments)),
-      validateTypes(typeDef.fields.flatMap(_.arguments), summon[TypeSystemDocument].isInputType),
+      validateTypes(typeDef.fields.flatMap(_.arguments), schema.isInputType),
       validateUniqueName(typeDef.interfaces),
       validateSelfImplementation(typeDef),
       typeDef.interfaces
         .traverse(validateTypeExists[ObjectLikeTypeDefinition])
         .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _)))
     ).mapN((v1, v2, v3, v4, v5, v6, v7, v8, validImplementations) => typeDef)
-
-    // val validImplErrs = typeDef.interfaces
-    //   .map(namedType => namedType -> schema.findTypeDef[InterfaceTypeDefinition](namedType.n))
-    //   .flatMap {
-    //     case (namedType, None)          => List(MissingTypeDefinition(namedType))
-    //     case (_, Some(implemedtedType)) => isValidImplementation(typeDef, implemedtedType, schema)
-    //   }
   end validateObjLike
 
   def validateUnion[T <: UnionTypeDefinition](typeDef: T)(using
@@ -232,50 +230,65 @@ object SchemaValidator:
     // 3.8.2 The member types of a union type must all be object base types
     // respectively
     (
+      validateDirectives(typeDef.directives, TSDL.UNION),
       validateNotEmpty(typeDef.unionMemberTypes),
       validateUniqueName(typeDef.unionMemberTypes),
       validateNamedTypes(typeDef.unionMemberTypes, summon[TypeSystemDocument].isObjectType)
-    ).mapN((v1, v2, v3) => typeDef)
+    ).mapN((_, _, _, _) => typeDef)
   end validateUnion
 
   def validateEnum[T <: EnumTypeDefinition](typeDef: T)(using
       TypeSystemDocument
   ): Validated[T] =
     // 3.9.1 An Enum type must define one or more unique enum values.
-    (validateNotEmpty(typeDef.values), validateUniqueName(typeDef.values)).mapN((v1, v2) => typeDef)
+    (
+      validateDirectives(typeDef.directives, TSDL.ENUM),
+      validateNotEmpty(typeDef.values),
+      validateUniqueName(typeDef.values)
+    ).mapN((_, _, _) => typeDef)
   end validateEnum
 
   def validateInputObj[T <: InputObjectTypeDefinition](typeDef: T)(using
       TypeSystemDocument
   ): Validated[T] =
     // validate
+    // 5.7.1, 5.7.2, 5.7.3
     // 3.10.1 An Input Object type must define one or more input args (fields)
     // 3.10.2.1 Arguments (fields) must have unique names within the Object type
     // 3.10.2.2 Argument (Field) names must not start with `__`
     // 3.10.2.3 Arguments (Fields) must return an output type
     // respectively
     (
+      validateDirectives(typeDef.directives, TSDL.INPUT_OBJECT),
       validateNotEmpty(typeDef.fields),
       validateUniqueName(typeDef.fields),
       validateNames(typeDef.fields),
       validateTypes(typeDef.fields, summon[TypeSystemDocument].isInputType)
     )
-      .mapN((v1, v2, v3, v4) => typeDef)
+      .mapN((_, _, _, _, _) => typeDef)
   end validateInputObj
+
+  def validateSchemaDefinition(schemaDef: SchemaDefinition)(using
+      TypeSystemDocument
+  ): Validated[SchemaDefinition] =
+    validateDirectives(schemaDef.directives, TSDL.SCHEMA).map(_ => schemaDef)
+  end validateSchemaDefinition
 
   def validate(schema: TypeSystemDocument): Validated[TypeSystemDocument] =
     given TypeSystemDocument = schema
 
+    val schemaDefs  = schema.getTypeDef[SchemaDefinition]
     val objLikeDefs = schema.getTypeDef[ObjectLikeTypeDefinition]
     val unionDefs   = schema.getTypeDef[UnionTypeDefinition]
     val enumDefs    = schema.getTypeDef[EnumTypeDefinition]
     val inObjDefs   = schema.getTypeDef[InputObjectTypeDefinition]
 
     (
+      schemaDefs.traverse(validateSchemaDefinition),
       objLikeDefs.traverse(validateObjLike),
       unionDefs.traverse(validateUnion),
       enumDefs.traverse(validateEnum),
       inObjDefs.traverse(validateInputObj),
       containsCycles(buildInputObjDepGraph(inObjDefs))
-    ).mapN((validObjLikes, validUnions, validEnums, validInObjs, validGraph) => schema)
+    ).mapN((_, _, _, _, _, _) => schema)
 end SchemaValidator

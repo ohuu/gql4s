@@ -109,14 +109,7 @@ val `type` = ((namedType | listType) ~ char('!').?).map {
 }
 
 // Variable
-val defaultValue          = (char('=') ~ __ *> defer(value))
 val variable: P[Variable] = char('$') ~ __ *> name.map(Variable(_))
-val variableDefinition =
-  ((variable <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ defaultValue.?).map {
-    case Variable(name) -> tpe -> defaultValue => VariableDefinition(name, tpe, defaultValue)
-  }
-val variableDefinitions  = (char('(') ~ __ *> (variableDefinition <* __).rep <* char(')'))
-val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(Nil))
 
 val value =
   variable
@@ -137,11 +130,22 @@ val arguments  = (char('(') ~ __ *> (argument <* __).rep <* char(')'))
 val arguments0 = arguments.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Directives
-val directive = (char('@') ~ __ *> (name <* __) ~ arguments0).map { case name -> arguments =>
-  Directive(name, arguments)
-}
+val directive =
+  (char('@') ~ __ *> (name <* __) ~ arguments0).map { case name -> arguments =>
+    Directive(name, arguments)
+  }
 val directives  = (directive <* __).rep
 val directives0 = (directive <* __).rep0
+
+// Variable definitions
+val defaultValue = (char('=') ~ __ *> value)
+val variableDefinition =
+  ((variable <* __ ~ char(':') ~ __) ~ (`type` <* __) ~ (defaultValue.? <* __) ~ directives0)
+    .map { case Variable(name) -> tpe -> defaultValue -> directives =>
+      VariableDefinition(name, tpe, defaultValue, directives)
+    }
+val variableDefinitions  = (char('(') ~ __ *> (variableDefinition <* __).rep <* char(')'))
+val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Selection Set
 val selection: P[Selection] =
@@ -246,7 +250,7 @@ val scalarTypeDefinition = (desc ~ scalar *> (name <* __) ~ directives0).map {
   case name -> directives => ScalarTypeDefinition(name, directives)
 }
 val scalarTypeExtension = ((desc ~ extend ~ scalar) *> (name <* __) ~ directives)
-  .map { case name -> directives => ScalarTypeExtension(name, directives) }
+  .map { case name -> directives => ScalarTypeExtension(name, directives.toList) }
 
 // Object
 val inputValueDefinition =

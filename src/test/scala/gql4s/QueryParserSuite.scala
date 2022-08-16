@@ -122,11 +122,21 @@ class QueryParserSuite extends FunSuite:
 
   test("variables") {
     assert(clue(variable.parse("$thing")) == Right("", Variable(Name("thing"))))
+    // variableDefinition.parse("$thing: Int! = 42 @skip") match
+    //   case Right(asdf, _) => println(asdf)
+    //   case _              => println("fuck you")
+
+    variableDefinition.parse("$thing: Int! = 42")
     assert(
       clue(variableDefinition.parse("$thing: Int! = 42")) ==
         Right(
           "",
-          VariableDefinition(Name("thing"), NonNullType(NamedType(Name("Int"))), Some(IntValue(42)))
+          VariableDefinition(
+            Name("thing"),
+            NonNullType(NamedType(Name("Int"))),
+            Some(IntValue(42)),
+            Nil
+          )
         )
     )
   }
@@ -318,3 +328,4 @@ class QueryParserSuite extends FunSuite:
     assert(clue(operationDefinition.parse(mutation)) == Right("", mutationRes))
     assert(clue(operationDefinition.parse(anonQuery)) == Right("", anonQueryRes))
   }
+end QueryParserSuite

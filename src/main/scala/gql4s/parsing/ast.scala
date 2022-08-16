@@ -16,74 +16,23 @@ import scala.reflect.TypeTest
 sealed trait HasType:
   def `type`: Type
 
-// given HasType[VariableDefinition] with
-//   extension (t: VariableDefinition) def getType = t.`type`
-
-// given HasType[FieldDefinition] with
-//   extension (t: FieldDefinition) def getType = t.`type`
-
-// given HasType[InputValueDefinition] with
-//   extension (t: InputValueDefinition) def getType = t.`type`
-
 sealed trait HasName:
   def name: Name
-
-// given HasName[Type] with
-//   extension (t: Type) def getName = t.name
-
-// given HasName[VariableDefinition] with
-//   extension (t: VariableDefinition) def getName = t.name
-
-// given HasName[FragmentDefinition] with
-//   extension (t: FragmentDefinition) def getName = t.name
-
-// given HasName[Field] with
-//   extension (t: Field) def getName = t.name
-
-// given HasName[FragmentSpread] with
-//   extension (t: FragmentSpread) def getName = t.name
-
-// given HasName[TypeDefinition] with
-//   extension (t: TypeDefinition) def getName = t.name
-
-// given HasName[TypeExtension] with
-//   extension (t: TypeExtension) def getName = t.name
-
-// given HasName[InputValueDefinition] with
-//   extension (t: InputValueDefinition) def getName = t.name
-
-// given HasName[FieldDefinition] with
-//   extension (t: FieldDefinition) def getName = t.name
-
-// given HasName[EnumValueDefinition] with
-//   extension (t: EnumValueDefinition) def getName = t.name
 
 sealed trait HasFields:
   def fields: List[FieldDefinition]
 
-// given HasFields[ObjectLikeTypeDefinition] with
-//   extension (t: ObjectLikeTypeDefinition) def getFields = t.fields
-
 sealed trait HasArgs:
   def arguments: List[InputValueDefinition]
-
-// given HasArgs[FieldDefinition] with
-//   extension (t: FieldDefinition) def getArguments = t.arguments
-
-// given HasArgs[InputObjectTypeDefinition] with
-//   extension (t: InputObjectTypeDefinition) def getArguments = t.fields
-
-// given HasArgs[DirectiveDefinition] with
-//   extension (t: DirectiveDefinition) def getArguments = t.arguments
 
 sealed trait HasInterfaces:
   def interfaces: List[NamedType]
 
-// given HasInterfaces[ObjectLikeTypeDefinition] with
-//   extension (t: ObjectLikeTypeDefinition) def getInterfaces = t.interfaces
-
 sealed trait HasSelectionSet:
   def selectionSet: SelectionSet
+
+sealed trait HasDirectives:
+  def directives: List[Directive]
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
@@ -124,12 +73,50 @@ case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
 end ExecutableDocument
 
 case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
-  val scalarDefs = List(
+  val builtInScalarDefs = List(
     ScalarTypeDefinition(Name("Int"), Nil),
     ScalarTypeDefinition(Name("Float"), Nil),
     ScalarTypeDefinition(Name("String"), Nil),
     ScalarTypeDefinition(Name("Boolean"), Nil),
     ScalarTypeDefinition(Name("ID"), Nil)
+  )
+
+  val builtInDirectiveDefs = List(
+    DirectiveDefinition(
+      Name("skip"),
+      List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+      false,
+      NonEmptyList.of(
+        ExecutableDirectiveLocation.FIELD,
+        ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+        ExecutableDirectiveLocation.INLINE_FRAGMENT
+      )
+    ),
+    DirectiveDefinition(
+      Name("include"),
+      List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+      false,
+      NonEmptyList.of(
+        ExecutableDirectiveLocation.FIELD,
+        ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+        ExecutableDirectiveLocation.INLINE_FRAGMENT
+      )
+    ),
+    DirectiveDefinition(
+      Name("deprecated"),
+      List(InputValueDefinition(Name("reason"), NamedType(Name("String")), None, Nil)),
+      false,
+      NonEmptyList.of(
+        TypeSystemDirectiveLocation.FIELD_DEFINITION,
+        TypeSystemDirectiveLocation.ENUM_VALUE
+      )
+    ),
+    DirectiveDefinition(
+      Name("specifiedBy"),
+      List(InputValueDefinition(Name("url"), NonNullType(NamedType(Name("String"))), None, Nil)),
+      false,
+      NonEmptyList.of(TypeSystemDirectiveLocation.SCALAR)
+    )
   )
 
   def isLeafType(name: Name): Boolean = name.text match
@@ -163,10 +150,10 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
   def isObjectType(name: Name): Boolean = findTypeDef[ObjectTypeDefinition](name).isDefined
 
   def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
-    (definitions ++ scalarDefs).collect { case t: T => t }.find(_.name == name)
+    (definitions ++ builtInScalarDefs).collect { case t: T => t }.find(_.name == name)
 
   def getTypeDef[T](using TypeTest[Any, T]): List[T] =
-    (definitions ++ scalarDefs).collect { case t: T => t }
+    (definitions ++ builtInScalarDefs).collect { case t: T => t }
 
   /** Checks whether the given field exists within the given type.
     *
@@ -223,6 +210,11 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
           case Mutation     => findTypeDef[ObjectTypeDefinition](Name("Mutation"))
           case Subscription => findTypeDef[ObjectTypeDefinition](Name("Subscription"))
   end findOpTypeDef
+
+  def findDirectiveDef(name: Name): Option[DirectiveDefinition] =
+    (definitions ++ builtInDirectiveDefs)
+      .collect { case t: DirectiveDefinition => t }
+      .find(_.name == name)
 end TypeSystemDocument
 
 sealed trait Definition
@@ -239,9 +231,14 @@ enum Type(val name: Name) extends HasName:
   case ListType(`type`: Type)             extends Type(`type`.name)
 
 // Values
-case class VariableDefinition(name: Name, `type`: Type, defaultValue: Option[Value])
-    extends HasType,
-      HasName
+case class VariableDefinition(
+    name: Name,
+    `type`: Type,
+    defaultValue: Option[Value],
+    directives: List[Directive]
+) extends HasType,
+      HasName,
+      HasDirectives
 
 case class ObjectField(name: Name, value: Value) extends HasName
 enum Value:
@@ -268,7 +265,8 @@ case class FragmentDefinition(
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
 ) extends ExecutableDefinition,
-      HasName
+      HasName,
+      HasDirectives
 
 type SelectionSet = NonEmptyList[Selection]
 sealed trait Selection // TODO: this should be an enum! Once HasName is a typeclass see if you can add an instance of HasName[FragmentSpread]
@@ -280,15 +278,20 @@ case class Field(
     directives: List[Directive],
     selectionSet: List[Selection]
 ) extends Selection,
-      HasName
+      HasName,
+      HasDirectives
 
 case class InlineFragment(
     onType: Option[Type.NamedType],
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
-) extends Selection
+) extends Selection,
+      HasDirectives
 
-case class FragmentSpread(name: Name, directives: List[Directive]) extends Selection, HasName
+case class FragmentSpread(name: Name, directives: List[Directive])
+    extends Selection,
+      HasName,
+      HasDirectives
 
 // Operations
 enum OperationType:
@@ -302,7 +305,8 @@ case class OperationDefinition(
     selectionSet: NonEmptyList[Selection]
 ) extends ExecutableDefinition,
       HasSelectionSet,
-      HasName
+      HasName,
+      HasDirectives
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Schema
@@ -321,15 +325,20 @@ case class RootOperationTypeDefinition(operationType: OperationType, namedType: 
 case class SchemaDefinition(
     directives: List[Directive],
     rootOperationTypeDefinition: NonEmptyList[RootOperationTypeDefinition]
-) extends TypeSystemDefinition
+) extends TypeSystemDefinition,
+      HasDirectives
 
 case class SchemaExtension(directives: List[Directive], root: List[RootOperationTypeDefinition])
-    extends TypeSystemExtension
+    extends TypeSystemExtension,
+      HasDirectives
 
 // Scalar Type
-case class ScalarTypeDefinition(name: Name, directives: List[Directive]) extends TypeDefinition
-case class ScalarTypeExtension(name: Name, directives: NonEmptyList[Directive])
-    extends TypeExtension
+case class ScalarTypeDefinition(name: Name, directives: List[Directive])
+    extends TypeDefinition,
+      HasDirectives
+case class ScalarTypeExtension(name: Name, directives: List[Directive])
+    extends TypeExtension,
+      HasDirectives
 
 // Object Type
 case class InputValueDefinition(
@@ -338,7 +347,8 @@ case class InputValueDefinition(
     defaultValue: Option[Value],
     directives: List[Directive]
 ) extends HasType,
-      HasName
+      HasName,
+      HasDirectives
 
 case class FieldDefinition(
     name: Name,
@@ -347,12 +357,19 @@ case class FieldDefinition(
     directives: List[Directive]
 ) extends HasType,
       HasName,
-      HasArgs
+      HasArgs,
+      HasDirectives
 
-trait ObjectLikeTypeDefinition extends TypeDefinition, HasName, HasFields, HasInterfaces:
+trait ObjectLikeTypeDefinition
+    extends TypeDefinition,
+      HasName,
+      HasFields,
+      HasInterfaces,
+      HasDirectives:
   def name: Name
   def fields: List[FieldDefinition]
   def interfaces: List[NamedType]
+  def directives: List[Directive]
 
 case class ObjectTypeDefinition(
     name: Name,
@@ -366,7 +383,8 @@ case class ObjectTypeExtension(
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeExtension
+) extends TypeExtension,
+      HasDirectives
 
 // Interfaces
 case class InterfaceTypeDefinition(
@@ -381,36 +399,43 @@ case class InterfaceTypeExtension(
     interfaces: List[NamedType],
     directives: List[Directive],
     fields: List[FieldDefinition]
-) extends TypeExtension
+) extends TypeExtension,
+      HasDirectives
 
 // Unions
 case class UnionTypeDefinition(
     name: Name,
     directives: List[Directive],
     unionMemberTypes: List[Type.NamedType]
-) extends TypeDefinition
+) extends TypeDefinition,
+      HasDirectives
 
 case class UnionTypeExtension(
     name: Name,
     directives: List[Directive],
     unionMembers: List[NamedType]
-) extends TypeExtension
+) extends TypeExtension,
+      HasDirectives
 
 // Enum Type Definition
-case class EnumValueDefinition(value: EnumValue, directives: List[Directive]) extends HasName:
+case class EnumValueDefinition(value: EnumValue, directives: List[Directive])
+    extends HasName,
+      HasDirectives:
   export value.*
 
 case class EnumTypeDefinition(
     name: Name,
     directives: List[Directive],
     values: List[EnumValueDefinition]
-) extends TypeDefinition
+) extends TypeDefinition,
+      HasDirectives
 
 case class EnumTypeExtension(
     name: Name,
     directives: List[Directive],
     values: List[EnumValueDefinition]
-) extends TypeExtension
+) extends TypeExtension,
+      HasDirectives
 
 // Input Objects
 case class InputObjectTypeDefinition(
@@ -418,14 +443,16 @@ case class InputObjectTypeDefinition(
     directives: List[Directive],
     fields: List[InputValueDefinition]
 ) extends TypeDefinition,
-      HasArgs:
+      HasArgs,
+      HasDirectives:
   def arguments = fields // Although these appear as fields they are also (kind of) arguments
 
 case class InputObjectTypeExtension(
     name: Name,
     directives: List[Directive],
     fieldsDef: List[InputValueDefinition]
-) extends TypeExtension
+) extends TypeExtension,
+      HasDirectives
 
 // Directives
 sealed trait DirectiveLocation

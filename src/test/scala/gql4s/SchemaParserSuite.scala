@@ -32,7 +32,7 @@ class SchemaParserSuite extends FunSuite:
     )
 
     val test3 = "extend scalar Int @skip"
-    val res3  = ScalarTypeExtension(Name("Int"), NonEmptyList.one(Directive(Name("skip"), Nil)))
+    val res3  = ScalarTypeExtension(Name("Int"), List(Directive(Name("skip"), Nil)))
 
     assert(clue(scalarTypeDefinition.parse(test1)) == Right("", res1))
     assert(clue(scalarTypeDefinition.parse(test2)) == Right("", res2))

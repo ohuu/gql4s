@@ -62,6 +62,7 @@ enum GqlError:
   case InvalidNamedType(name: Name, context: Option[String] = None)
   case InvalidFragment(name: Name, context: Option[String] = None)
   case InvalidSelection(fieldName: Name, namedType: NamedType, context: Option[String] = None)
+  case InvalidLocation(name: Name, context: Option[String] = None)
   case CycleDetected(cycle: Name, context: Option[String] = None)
   case OperationDefinitionError(context: Option[String] = None)
   case SubscriptionHasMultipleRoots2(subName: Option[Name], context: Option[String] = None)
