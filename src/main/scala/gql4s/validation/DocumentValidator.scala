@@ -26,14 +26,9 @@ object DocumentValidator:
    */
   type FragDefReqsTable = Map[Name, Set[Variable]]
 
-  /** A mapping from fragment defintion to its dependencies */
-  // type FragDefDepsGraph =
-  //   LinkedHashMap[FragmentDefinition, Set[Name]] // maintains insertion order 👍
-
   // /////////////////////////////////////////////////////////////////////////////////////////////////
   // Helper Functions
   /** Builds a table of variables required to execute the given fragment definition */
-  // TODO: URGENT What the fuck does this function do??
   def findFragDefReqs(
       fragDef: FragmentDefinition
       // depReqs: FragDefReqsTable
@@ -126,8 +121,9 @@ object DocumentValidator:
       end match
     end recurse
 
+    // A mapping from fragment defintion to its dependencies
     if fragDefs.nonEmpty then
-      LinkedHashMap.from(
+      LinkedHashMap.from( // maintains insertion order 👍
         fragDefs
           .map(fragDef =>
             val deps = recurse(fragDef.selectionSet.toList)
@@ -292,73 +288,6 @@ object DocumentValidator:
   end validateInputObjectValue
 
   /**
-   * Validate a fields arguments
-   * @param field
-   *   The field whos arguments we will validate.
-   * @param fieldDef
-   *   The definition of the field
-   * @param parentType
-   *   The type of the object containing the field
-   */
-  def validateArguments(
-      field: Field,
-      fieldDef: FieldDefinition,
-      parentType: NamedType
-  )(using schema: TypeSystemDocument): Validated[List[Argument]] =
-    // TODO: Choose better name for this
-    val validatedArgs =
-      field.arguments.map {
-        case Argument(name, objVal: ObjectValue) =>
-          // 5.4.1 args exist
-          // TODO: Include directives in this
-          fieldDef.arguments.find(_.name == name) match
-            case None =>
-              MissingDefinition(
-                name,
-                Some(s"in field ${field.name} defined in type ${parentType}")
-              ).invalidNec
-            case Some(inValDef) =>
-              validateInputObjectValue(objVal, inValDef).map(_ => ())
-
-        case Argument(name, _) =>
-          // 5.4.1 args exist
-          // TODO: Include directives in this
-          fieldDef.arguments.find(_.name == name) match
-            case None =>
-              MissingDefinition(
-                name,
-                Some(s"in field ${field.name} defined in type ${parentType}")
-              ).invalidNec
-            case _ => ().validNec
-      }.combineAll
-
-    // 5.4.2 args are unique
-    // TODO: Include directives in this
-    val validatedArgNames = validateUniqueName(field.arguments).map(_ => ())
-
-    // 5.4.2.1 required args
-    // TODO: Include directives in this
-    val requiredArgs =
-      fieldDef.arguments
-        .filter {
-          case InputValueDefinition(_, _: NonNullType, None, _) => true
-          case _                                                => false
-        }
-        .map(_.name)
-    val validatedRequiredArgs = requiredArgs.traverse(argName =>
-      field.arguments.find(_.name == argName) match
-        case None    => MissingArgument2(argName, Some(s"field.name, parentType")).invalidNec
-        case Some(_) => ().validNec
-    )
-
-    (
-      validatedArgs,
-      validatedArgNames,
-      validatedRequiredArgs
-    ).mapN((v1, v2, v3) => field.arguments)
-  end validateArguments
-
-  /**
    * Performs various validation steps on selection sets. Bear in mind that this function will not
    * validate fragment definitions but will validate inline fragment definitions, you must call
    * validateFragmentDefinition as well as this function to fully validate an executable document.
@@ -395,21 +324,28 @@ object DocumentValidator:
                   val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
                   validatedField combine validatedDirectives combine acc
                 case Some(fieldDef) =>
-                  val validatedArgs = validateArguments(field, fieldDef, parentType).map(_ => ())
+                  val validatedArgs =
+                    validateArguments(field.arguments, fieldDef).map(_ => ())
                   val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
 
                   val fieldType: NamedType = NamedType(fieldDef.`type`.name)
                   schema.findTypeDef[TypeDefinition](fieldType.name) match
                     case None =>
                       val validatedDef = MissingTypeDefinition(fieldType).invalidNec
-                      recurse(tail, validatedDef combine acc)
+                      recurse(
+                        tail,
+                        validatedArgs combine validatedDirectives combine validatedDef combine acc
+                      )
 
                     // We found it but it's a leaf type so we can't recurse into its children,
                     // instead just carry on with the parent types other selections (tail)
                     case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) =>
                       // 5.3.3 leaf field selection validation
                       if selectionSet.isEmpty then
-                        recurse(tail, validatedArgs combine validatedDirectives combine acc)
+                        recurse(
+                          tail,
+                          validatedArgs combine validatedDirectives combine acc
+                        )
                       else
                         val validatedSelection = InvalidSelection(fieldName, parentType).invalidNec
                         recurse(
@@ -469,7 +405,7 @@ object DocumentValidator:
 
             // Fragment definitions have already been validated by this point so you only need to
             // check if the fragment definition exists, there's no need to step into the defintion
-            case FragmentSpread(name, _) =>
+            case FragmentSpread(name, dirs) =>
               doc.findFragDef(name) match
                 case None =>
                   // 5.5.2.1 Fragment definition must exist
@@ -749,32 +685,4 @@ object DocumentValidator:
 
   //   ???
   // end fieldsInSetCanMerge
-
-// 5.5.2.3.1
-// TODO: Implement this validator. ✔️✔️
-
-// 5.5.2.3.2
-// TODO: Implement this validator. ✔️✔️
-
-// 5.5.2.3.3
-// TODO: Implement this validator. ✔️✔️
-
-// 5.5.2.3.4
-// TODO: Implement this validator.
-
-// 5.6.1
-// TODO: Implement this validator.
-
-// 5.7.1
-// TODO: Implement this validator. ✔️
-
-// 5.7.2
-// TODO: Implement this validator. ✔️
-
-// 5.7.3
-// TODO: Implement this validator. ✔️
-
-// 5.8.5
-// TODO: Implement this validator.
-
 end DocumentValidator

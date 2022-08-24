@@ -556,4 +556,54 @@ class SchemaValidatorSuite extends FunSuite:
         assertEquals(clue(actual), clue(expected))
       case _ => fail("failed to parse schemaStr")
   }
+
+  test("directives must have a definition") {
+    val doc1 = """
+    type A {
+      a: Int!
+    }
+    type B {
+      b: String
+    }
+    union C @mydir = A | B
+    """
+    typeSystemDocument.parse(doc1) match
+      case Right(_ -> schema) =>
+        val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+        val expectedErrs = List(MissingDefinition(Name("mydir")))
+        assertEquals(clue(actualErrs), expectedErrs)
+      case _ => fail("failed to parse doc1")
+  }
+
+  test("directives must be unique per location") {
+    val doc1 = """
+    directive @mydir on ENUM
+
+    enum Planets @mydir @mydir {
+      MARS
+      EARTH
+    }
+    """
+    typeSystemDocument.parse(doc1) match
+      case Right(_ -> schema) =>
+        val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+        val expectedErrs = List(DuplicateName(Name("mydir")))
+        assertEquals(clue(actualErrs), expectedErrs)
+      case _ => fail("failed to parse doc1")
+  }
+
+  test("directives must be in the correct location") {
+    val doc1 = """
+    enum Planets @deprecated {
+      MARS @deprecated
+      EARTH
+    }
+    """
+    typeSystemDocument.parse(doc1) match
+      case Right(_ -> schema) =>
+        val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+        val expectedErrs = List(InvalidLocation(Name("deprecated")))
+        assertEquals(clue(actualErrs), expectedErrs)
+      case _ => fail("failed to parse doc1")
+  }
 end SchemaValidatorSuite

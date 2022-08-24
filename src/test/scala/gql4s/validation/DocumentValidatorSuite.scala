@@ -269,9 +269,9 @@ class DocumentValidationSuite extends FunSuite:
         val expectedErrs = List(
           MissingDefinition(
             Name("command"),
-            Some("in field Name(doesKnowCommand) defined in type NamedType(Name(Dog))")
+            Some("in definition Name(doesKnowCommand)")
           ),
-          MissingArgument2(Name("dogCommand"), Some("field.name, parentType"))
+          MissingArgument2(Name("dogCommand"), None)
         )
         assertEquals(clue(actualErrs), clue(expectedErrs))
       case _ => fail("failed to parse doc2")
@@ -302,7 +302,7 @@ class DocumentValidationSuite extends FunSuite:
       case Right(_ -> doc) =>
         val errs        = validate(doc).swap.map(_.toList).getOrElse(Nil)
         val actualErr   = errs.find(_.isInstanceOf[MissingArgument2])
-        val expectedErr = MissingArgument2(Name("y"), Some("field.name, parentType"))
+        val expectedErr = MissingArgument2(Name("y"), None)
         assertEquals(clue(actualErr), clue(Some(expectedErr)))
       case _ => fail("failed to parse doc4")
   }

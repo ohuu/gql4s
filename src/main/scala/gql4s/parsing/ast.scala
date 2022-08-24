@@ -45,12 +45,13 @@ case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
 
   def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
 
-  /** Finds unique uses of fragment spreads.
-    *
-    * @return
-    *   A list of fragment spreads which are used in the given document. No duplicates will exist in
-    *   the list.
-    */
+  /**
+   * Finds unique uses of fragment spreads.
+   *
+   * @return
+   *   A list of fragment spreads which are used in the given document. No duplicates will exist in
+   *   the list.
+   */
   def findFragSpreads(): List[FragmentSpread] =
     @tailrec
     def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
@@ -155,17 +156,18 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
   def getTypeDef[T](using TypeTest[Any, T]): List[T] =
     (definitions ++ builtInScalarDefs).collect { case t: T => t }
 
-  /** Checks whether the given field exists within the given type.
-    *
-    * @param fieldName
-    *   The field we're looking for.
-    * @param namedType
-    *   The name of the type to search in.
-    * @param schema
-    *   The graphql schema.
-    * @return
-    *   Some MissingField error if the field cannot be found, None if it can.
-    */
+  /**
+   * Checks whether the given field exists within the given type.
+   *
+   * @param fieldName
+   *   The field we're looking for.
+   * @param namedType
+   *   The name of the type to search in.
+   * @param schema
+   *   The graphql schema.
+   * @return
+   *   Some MissingField error if the field cannot be found, None if it can.
+   */
   def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
     @tailrec
     def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
@@ -314,8 +316,9 @@ sealed trait TypeSystemDefinition            extends Definition
 sealed trait TypeSystemExtension             extends Definition
 sealed trait TypeSystemDefinitionOrExtension extends Definition
 
-sealed trait TypeDefinition extends TypeSystemDefinition, HasName:
+sealed trait TypeDefinition extends TypeSystemDefinition, HasName, HasDirectives:
   def name: Name
+  def directives: List[Directive]
 
 sealed trait TypeExtension extends TypeSystemExtension, HasName:
   def name: Name
@@ -471,4 +474,5 @@ case class DirectiveDefinition(
     repeatable: Boolean,
     directiveLocs: NonEmptyList[DirectiveLocation]
 ) extends TypeSystemDefinition,
+      HasName,
       HasArgs
