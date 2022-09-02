@@ -80,6 +80,11 @@ object DocumentValidator:
   end findFragDefReqs
 
   def findOpDefReqs(opDef: OperationDefinition, fragDefReqs: FragDefReqsTable): Set[Variable] =
+    def requiredVars(args: List[Argument]): Set[Variable] = args.flatMap {
+      case Argument(_, v: Variable) => Some(v)
+      case _                        => None
+    }.toSet
+
     @tailrec
     def recurse(
         accSelectionSets: List[Selection],
@@ -89,18 +94,19 @@ object DocumentValidator:
         case Nil => accReqs
 
         case (field: Field) :: tail =>
-          val vars = field.arguments.flatMap {
-            case Argument(_, v: Variable) => Some(v)
-            case _                        => None
-          }.toSet
+          val allArgs = field.directives.flatMap(_.arguments) ++ field.arguments
+          val vars    = requiredVars(allArgs)
           recurse(field.selectionSet ::: tail, vars union accReqs)
 
-        case (frag: InlineFragment) :: tail => recurse(frag.selectionSet.toList ::: tail, accReqs)
+        case (frag: InlineFragment) :: tail =>
+          val vars = requiredVars(frag.directives.flatMap(_.arguments))
+          recurse(frag.selectionSet.toList ::: tail, vars union accReqs)
 
         case (frag: FragmentSpread) :: tail =>
+          val vars = requiredVars(frag.directives.flatMap(_.arguments))
           if fragDefReqs.contains(frag.name) then
-            recurse(tail, fragDefReqs(frag.name) union accReqs)
-          else recurse(tail, accReqs)
+            recurse(tail, vars union fragDefReqs(frag.name) union accReqs)
+          else recurse(tail, vars union accReqs)
 
       end match
     end recurse
