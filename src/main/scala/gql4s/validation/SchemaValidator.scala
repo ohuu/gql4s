@@ -32,19 +32,19 @@ object SchemaValidator:
   ): DependencyGraph[T] =
     LinkedHashMap.from(
       inObjDefs
-        .map(inObj =>
-          inObj -> inObj.fields
+        .map { inObj =>
+          val deps = inObj.fields
             .map(_.`type`.name)
             .flatMap(name => inObjDefs.find(_.name == name))
             .map(_.name)
             .toSet
-        )
+          inObj -> deps
+        }
     )
-  end buildInputObjDepGraph
 
-  def buildDirDefDepGraph(
-      dirDefs: List[DirectiveDefinition]
-  )(using schema: TypeSystemDocument): DependencyGraph[DirectiveDefinition] =
+  def buildDirDefDepGraph(dirDefs: List[DirectiveDefinition])(using
+      schema: TypeSystemDocument
+  ): DependencyGraph[DirectiveDefinition] =
     def toNameSet(dirs: List[Directive]): Set[Name] = dirs.map(_.name).toSet
     @tailrec
     def recurse(acc: List[HasDirectives], accDeps: Set[Name] = Set.empty): Set[Name] =
@@ -79,15 +79,16 @@ object SchemaValidator:
     end recurse
 
     LinkedHashMap.from(
-      dirDefs.map(dirDef =>
+      dirDefs.map { dirDef =>
         val argDirs = dirDef.arguments.flatMap(_.directives.map(_.name)).toSet
-        val argTypeDirs = dirDef.arguments.flatMap(arg =>
-          schema.findTypeDef[TypeDefinition](arg.`type`.name) match
-            case None                          => Nil
-            case Some(t: ScalarTypeDefinition) => Nil
-        )
-        dirDef -> (argDirs ++ argTypeDirs)
-      )
+        val argTypeDirs =
+          recurse(
+            dirDef.arguments
+              .map(_.`type`.name)
+              .flatMap(schema.findTypeDef[TypeDefinition])
+          )
+        dirDef -> (argDirs union argTypeDirs)
+      }
     )
   end buildDirDefDepGraph
 
@@ -97,12 +98,8 @@ object SchemaValidator:
     if ts.isEmpty then StructureEmpty().invalidNec
     else ts.validNec
 
-  def validateNames[T <: HasName](ts: List[T]): Validated[List[T]] = ts
-    .traverse(t =>
-      t.name match
-        case name @ Name(text) if text.startsWith("__") => InvalidName(name).invalidNec
-        case _                                          => t.validNec
-    )
+  def validateName(n: Name): Validated[Name] =
+    if n.text.startsWith("__") then InvalidName(n).invalidNec else n.validNec
 
   // TODO: Type test for K can't be performed at runtime. Is this a problem?
   def validateTypeExists[K <: TypeDefinition](
@@ -112,20 +109,16 @@ object SchemaValidator:
       case Some(typeDef) => typeDef.validNec
       case None          => MissingDefinition(t.name).invalidNec
 
-  def validateTypes[T <: HasType](ts: List[T], validate: Type => Boolean): Validated[List[T]] = ts
-    .traverse(t =>
-      validate(t.`type`) match
-        case true  => t.validNec
-        case false => InvalidType(t.`type`).invalidNec
-    )
+  def validateType(t: Type, test: Type => Boolean): Validated[Type] =
+    if test(t) then t.validNec else InvalidType(t).invalidNec
 
   def validateNamedTypes[T <: HasName](ts: List[T], validate: Name => Boolean): Validated[List[T]] =
     ts
-      .traverse(t =>
+      .traverse { t =>
         validate(t.name) match
           case true  => t.validNec
           case false => InvalidNamedType(t.name).invalidNec
-      )
+      }
 
   def validateSelfImplementation[T <: HasName & HasInterfaces](t: T): Validated[T] =
     if t.interfaces.exists(_.name == t.name)
@@ -183,19 +176,18 @@ object SchemaValidator:
 
     // aField must contain ALL args in bField
     // shared args must be the same type (invariant)
-    val validateImplementationArgs = bArgs.traverse(bArg =>
+    val validateImplementationArgs = bArgs.traverse { bArg =>
       aArgs.find(_.name == bArg.name) match
         case None       => MissingArgument2(bArg.name).invalidNec
         case Some(aArg) => validateInvariant(aArg, bArg)
-    )
+    }
 
     // aField can have more args than bField but they must not be required fields
-    val validateExtraArgs = extraArgs
-      .traverse(arg =>
-        arg.`type` match
-          case tpe: NonNullType => InvalidType(tpe).invalidNec
-          case _                => arg.validNec
-      )
+    val validateExtraArgs = extraArgs.traverse { arg =>
+      arg.`type` match
+        case tpe: NonNullType => InvalidType(tpe).invalidNec
+        case _                => arg.validNec
+    }
 
     (validateImplementationArgs, validateExtraArgs).mapN((validArgs, validExtraArgs) => aField)
   end validateImplementationArgs
@@ -203,7 +195,7 @@ object SchemaValidator:
   def validateImplementationFields[T <: HasFields](a: T, b: T)(using
       TypeSystemDocument
   ): Validated[T] = b.fields
-    .traverse(bField =>
+    .traverse { bField =>
       a.fields.find(_.name == bField.name) match
         case None => MissingName(bField.name).invalidNec
         case Some(aField) =>
@@ -211,9 +203,8 @@ object SchemaValidator:
             validateImplementationArgs(aField, bField),
             validateCovariant(aField.`type`, bField.`type`)
           ).mapN((validArgs, validReturnType) => aField)
-    )
+    }
     .map(_ => a)
-  end validateImplementationFields
 
   /**
    * Checks whether the given type {@a} is a valid implementation of {@b}
@@ -247,7 +238,6 @@ object SchemaValidator:
       validateDirectives(fieldDef.directives, TSDL.FIELD_DEFINITION),
       fieldDef.arguments.traverse(validateArgDefinition)
     ).mapN((_, _) => fieldDef)
-  end validateFieldDefinition
 
   /**
    * Validates both object and interface types according to the `Type Validation` sections defined
@@ -272,16 +262,19 @@ object SchemaValidator:
       validateUniqueName(typeDef.fields),
 
       // 3.6.2.2 Field names must not start with `__`
-      validateNames(typeDef.fields),
+      typeDef.fields.map(_.name).traverse(validateName),
 
       // 3.6.2.3 Fields must return an output type
-      validateTypes(typeDef.fields, schema.isOutputType),
+      typeDef.fields.map(_.`type`).traverse(validateType(_, schema.isOutputType)),
 
       // 3.6.2.4.1
-      validateNames(typeDef.fields.flatMap(_.arguments)),
+      typeDef.fields.flatMap(_.arguments).map(_.name).traverse(validateName),
 
       // 3.6.2.4.2
-      validateTypes(typeDef.fields.flatMap(_.arguments), schema.isInputType),
+      typeDef.fields
+        .flatMap(_.arguments)
+        .map(_.`type`)
+        .traverse(validateType(_, schema.isInputType)),
 
       // 3.6.3 An object like type may declare that it implements one or more unique interfaces.
       //       If it's an interface type it may not implement itself
@@ -303,7 +296,6 @@ object SchemaValidator:
       validateDirectives(typeDef.directives, TSDL.OBJECT),
       validateObjLike(typeDef)
     ).mapN((_, _) => typeDef)
-  end validateObjTypeDef
 
   def validateInterfaceTypeDef[T <: InterfaceTypeDefinition](
       typeDef: T
@@ -312,7 +304,6 @@ object SchemaValidator:
       validateDirectives(typeDef.directives, TSDL.INTERFACE),
       validateObjLike(typeDef)
     ).mapN((_, _) => typeDef)
-  end validateInterfaceTypeDef
 
   def validateUnion[T <: UnionTypeDefinition](typeDef: T)(using
       TypeSystemDocument
@@ -345,7 +336,7 @@ object SchemaValidator:
   end validateEnum
 
   def validateInputObj[T <: InputObjectTypeDefinition](typeDef: T)(using
-      TypeSystemDocument
+      schema: TypeSystemDocument
   ): Validated[T] =
     (
       // 3.10.1 An Input Object type must define one or more input args (fields)
@@ -355,10 +346,10 @@ object SchemaValidator:
       validateUniqueName(typeDef.fields),
 
       // 3.10.2.2 Argument (Field) names must not start with `__`
-      validateNames(typeDef.fields),
+      typeDef.fields.map(_.name).traverse(validateName),
 
       // 3.10.2.3 Arguments (Fields) must return an output type
-      validateTypes(typeDef.fields, summon[TypeSystemDocument].isInputType),
+      typeDef.fields.map(_.`type`).traverse(validateType(_, schema.isInputType)),
 
       // validate directives
       validateDirectives(typeDef.directives, TSDL.INPUT_OBJECT),
@@ -377,9 +368,16 @@ object SchemaValidator:
   ): Validated[SchemaDefinition] =
     validateDirectives(schemaDef.directives, TSDL.SCHEMA).map(_ => schemaDef)
 
-  def validateDirectiveDefinition(dirDef: DirectiveDefinition)(using
-      TypeSystemDocument
-  ): Validated[DirectiveDefinition] = ???
+  def validateDirectiveDefinitions(dirDefs: List[DirectiveDefinition])(using
+      schema: TypeSystemDocument
+  ): Validated[List[DirectiveDefinition]] =
+    topologicalSort(buildDirDefDepGraph(dirDefs)).andThen(sortedGraph =>
+      (
+        dirDefs.map(_.name).traverse(validateName),
+        dirDefs.flatMap(_.arguments).map(_.name).traverse(validateName),
+        dirDefs.flatMap(_.arguments).map(_.`type`).traverse(validateType(_, schema.isInputType))
+      ).mapN((_, _, _) => dirDefs)
+    )
 
   def validate(schema: TypeSystemDocument): Validated[TypeSystemDocument] =
     given TypeSystemDocument = schema
@@ -394,8 +392,8 @@ object SchemaValidator:
     val scalarTypeDefs    = schema.getTypeDef[ScalarTypeDefinition]
 
     (
+      validateDirectiveDefinitions(directiveDefs),
       schemaDefs.traverse(validateSchemaDefinition),
-      directiveDefs.traverse(validateDirectiveDefinition),
       objTypeDefs.traverse(validateObjTypeDef),
       interfaceTypeDefs.traverse(validateInterfaceTypeDef),
       scalarTypeDefs.traverse(validateScalarTypeDefinition),
