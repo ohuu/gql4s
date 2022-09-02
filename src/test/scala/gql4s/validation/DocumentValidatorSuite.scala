@@ -876,9 +876,9 @@ class DocumentValidationSuite extends FunSuite:
 
   test("directives must have a definition") {
     val doc1 = """
-    {
+    query myQuery($someTest: Boolean!) {
       dog {
-        name @skip
+        name @skip(if: $someTest)
         barkVolume @skips
       }
     }
@@ -893,9 +893,9 @@ class DocumentValidationSuite extends FunSuite:
 
   test("directives must be unique per location") {
     val doc1 = """
-    {
+    query myQuery($someTest: Boolean!) {
       dog {
-        name @skip @skip
+        name @skip(if: $someTest) @skip(if: $someTest)
       }
     }
     """
