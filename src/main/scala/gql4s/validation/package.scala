@@ -236,7 +236,7 @@ end validateDirectives
 
 // TODO:
 
-// ✔️ 3.13 (why isn't this in section 5?!?) directive definitions need to be validated
+// ✔️✔️ 3.13 (why isn't this in section 5?!?) directive definitions need to be validated
 // 5.3.2 Field merging needs to be implemented (BIG)
 // ✔️ 5.4.1, 5.4.2 & 5.4.2.1 must also be applied to directives
 // 5.5.2.3.4 Abstract spreads within abstract scope need to be validated

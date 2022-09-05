@@ -923,4 +923,36 @@ class DocumentValidationSuite extends FunSuite:
         assertEquals(clue(actualErrs), expectedErrs)
       case _ => fail("failed to parse doc1")
   }
+
+  test("directive arguments must be defined and unique and requied args must be provided") {
+    val doc1 = """
+    query GetDogA {
+      dog {
+        name @myDir(x: 42, y: 42)
+      }
+    }
+
+    query GetDogB {
+      dog {
+        name @myDir(x: 42, x: 42)
+      }
+    }
+
+    query GetDogC {
+      dog {
+        name @myDir
+      }
+    }
+    """
+    executableDocument.parse(doc1) match
+      case Right(_ -> doc) =>
+        val actualErrs = validate(doc).swap.map(_.toList).getOrElse(Nil)
+        val expectedErrs = List(
+          MissingDefinition(Name("y"), Some("in definition Name(myDir)")),
+          DuplicateName(Name("x"), None),
+          MissingArgument2(Name("x"), None)
+        )
+        assertEquals(clue(actualErrs), expectedErrs)
+      case _ => fail("failed to parse doc1")
+  }
 end DocumentValidationSuite

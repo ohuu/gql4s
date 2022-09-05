@@ -615,6 +615,7 @@ class SchemaValidatorSuite extends FunSuite:
 
     directive @dirA(a: Int @dirA(a: 42)) on ARGUMENT_DEFINITION
     directive @dirB(b: B) on FIELD_DEFINITION
+    directive @dirC(b: B) on FIELD_DEFINITION
     """
     typeSystemDocument.parse(schemaStr) match
       case Right(_ -> schema) =>
@@ -622,6 +623,18 @@ class SchemaValidatorSuite extends FunSuite:
           validate(schema).swap.map(_.toList).getOrElse(Nil).collect { case o: CycleDetected => o }
         val expectedErrs =
           List[CycleDetected](CycleDetected(Name("dirA")), CycleDetected(Name("dirB")))
+        assertEquals(clue(actualErrs), expectedErrs)
+      case Left(err) => fail(s"failed to parse schemaStr\n${err}")
+  }
+
+  test("directive names must not begin with __") {
+    val schemaStr = """
+    directive @__dirA on ARGUMENT_DEFINITION
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+        val expectedErrs = List[GqlError](InvalidName(Name("__dirA")))
         assertEquals(clue(actualErrs), expectedErrs)
       case Left(err) => fail(s"failed to parse schemaStr\n${err}")
   }

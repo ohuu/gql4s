@@ -11,6 +11,8 @@ import parsing.Type.*
 import parsing.Value.*
 
 val schemaStr = """
+  directive @myDir(x: Int!) on FIELD
+
   type Query {
     dog: Dog
     multipleRequirements(x: Int!, y: Int!): Int!
@@ -80,6 +82,19 @@ val schemaStr = """
 
 given schemaDoc: TypeSystemDocument = TypeSystemDocument(
   definitions = NonEmptyList.of(
+    DirectiveDefinition(
+      Name("myDir"),
+      List(
+        InputValueDefinition(
+          Name("x"),
+          NonNullType(NamedType(Name("Int"))),
+          None,
+          Nil
+        )
+      ),
+      false,
+      NonEmptyList.one(ExecutableDirectiveLocation.FIELD)
+    ),
     ObjectTypeDefinition(
       Name("Query"),
       Nil,
