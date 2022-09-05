@@ -606,4 +606,23 @@ class SchemaValidatorSuite extends FunSuite:
         assertEquals(clue(actualErrs), expectedErrs)
       case _ => fail("failed to parse doc1")
   }
+
+  test("directive definitions must not contain cycles") {
+    val schemaStr = """
+    type B {
+      x: Int @dirB(b: { x: 42 })
+    }
+
+    directive @dirA(a: Int @dirA(a: 42)) on ARGUMENT_DEFINITION
+    directive @dirB(b: B) on FIELD_DEFINITION
+    """
+    typeSystemDocument.parse(schemaStr) match
+      case Right(_ -> schema) =>
+        val actualErrs =
+          validate(schema).swap.map(_.toList).getOrElse(Nil).collect { case o: CycleDetected => o }
+        val expectedErrs =
+          List[CycleDetected](CycleDetected(Name("dirA")), CycleDetected(Name("dirB")))
+        assertEquals(clue(actualErrs), expectedErrs)
+      case Left(err) => fail(s"failed to parse schemaStr\n${err}")
+  }
 end SchemaValidatorSuite
