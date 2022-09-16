@@ -29,23 +29,23 @@ class QueryParserSuite extends FunSuite:
 
   test("values") {
     // Int Value
-    assert(clue(value.parse("1")) == Right("", IntValue(1)))
-    assert(clue(value.parse("-0")) == Right("", IntValue(0)))
-    assert(clue(value.parse("-1338")) == Right("", IntValue(-1338)))
-    assert(clue(value.parse("1338")) == Right("", IntValue(1338)))
+    assert(clue(value.parse("1")) == Right("", IntValue("1")))
+    assert(clue(value.parse("-0")) == Right("", IntValue("0")))
+    assert(clue(value.parse("-1338")) == Right("", IntValue("-1338")))
+    assert(clue(value.parse("1338")) == Right("", IntValue("1338")))
 
     // Float Value
-    assert(clue(value.parse("0.0")) == Right("", FloatValue(0)))
-    assert(clue(value.parse("-1.9")) == Right("", FloatValue(-1.9)))
-    assert(clue(value.parse("10.55")) == Right("", FloatValue(10.55)))
-    assert(clue(value.parse("-42.1338")) == Right("", FloatValue(-42.1338)))
-    assert(clue(value.parse("1338e-4")) == Right("", FloatValue(1338e-4)))
-    assert(clue(value.parse("42.0E+2")) == Right("", FloatValue(42.0e+2)))
+    assert(clue(value.parse("0.0")) == Right("", FloatValue("0")))
+    assert(clue(value.parse("-1.9")) == Right("", FloatValue("-1.9")))
+    assert(clue(value.parse("10.55")) == Right("", FloatValue("10.55")))
+    assert(clue(value.parse("-42.1338")) == Right("", FloatValue("-42.1338")))
+    assert(clue(value.parse("1338e-4")) == Right("", FloatValue("1338e-4")))
+    assert(clue(value.parse("42.0E+2")) == Right("", FloatValue("42.0e+2")))
     assert(clue(value.parse(".32")).isLeft)
 
     // Boolean Value
-    assert(clue(value.parse("true")) == Right("", BooleanValue(true)))
-    assert(clue(value.parse("false")) == Right("", BooleanValue(false)))
+    assert(clue(value.parse("true")) == Right("", BooleanValue("true")))
+    assert(clue(value.parse("false")) == Right("", BooleanValue("false")))
 
     // String Value
     assert(clue(triQuote.parse("\"\"\"")).isRight)
@@ -79,9 +79,9 @@ class QueryParserSuite extends FunSuite:
     // List Value
     val listTest = List(
       "[]"       -> ("", ListValue(Nil)),
-      "[42]"     -> ("", ListValue(IntValue(42) :: Nil)),
-      "[42, 43]" -> ("", ListValue(IntValue(42) :: IntValue(43) :: Nil)),
-      "[[42]]"   -> ("", ListValue(ListValue(IntValue(42) :: Nil) :: Nil))
+      "[42]"     -> ("", ListValue(IntValue("42") :: Nil)),
+      "[42, 43]" -> ("", ListValue(IntValue("42") :: IntValue("43") :: Nil)),
+      "[[42]]"   -> ("", ListValue(ListValue(IntValue("42") :: Nil) :: Nil))
     )
 
     assert(clue(value.parse(listTest(0)._1)) == Right(listTest(0)._2))
@@ -102,9 +102,9 @@ class QueryParserSuite extends FunSuite:
 
     assert(clue(value.parse(objTest(0)._1)) == Right(objTest(0)._2))
     assert(clue(value.parse(objTest(1)._1)) == Right(objTest(1)._2))
-    assert(clue(value.parse("1338")) == Right("", IntValue(1338)))
-    assert(clue(value.parse("-42.0E+2")) == Right("", FloatValue(-42.0e+2)))
-    assert(clue(value.parse("true")) == Right("", BooleanValue(true)))
+    assert(clue(value.parse("1338")) == Right("", IntValue("1338")))
+    assert(clue(value.parse("-42.0E+2")) == Right("", FloatValue("-42.0e+2")))
+    assert(clue(value.parse("true")) == Right("", BooleanValue("true")))
     assert(
       clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\""))
     )
@@ -134,7 +134,7 @@ class QueryParserSuite extends FunSuite:
           VariableDefinition(
             Name("thing"),
             NonNullType(NamedType(Name("Int"))),
-            Some(IntValue(42)),
+            Some(IntValue("42")),
             Nil
           )
         )
@@ -143,18 +143,18 @@ class QueryParserSuite extends FunSuite:
 
   test("arguments") {
     val test = List(
-      "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue(42.5))),
+      "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue("42.5"))),
       """( name: "oli", age: 38  )""" -> (
         "",
         NonEmptyList(
           Argument(Name("name"), StringValue("oli")),
-          Argument(Name("age"), IntValue(38)) :: Nil
+          Argument(Name("age"), IntValue("38")) :: Nil
         )
       )
     )
 
     val test2    = "id: 4"
-    val test2Res = Argument(Name("id"), IntValue(4))
+    val test2Res = Argument(Name("id"), IntValue("4"))
 
     assert(clue(argument.parse(test(0)._1)) == Right(test(0)._2))
     assert(clue(arguments.parse(test(1)._1)) == Right(test(1)._2))
@@ -199,7 +199,7 @@ class QueryParserSuite extends FunSuite:
     val field2Res = Field(
       None,
       Name("user"),
-      List(Argument(Name("id"), IntValue(4))),
+      List(Argument(Name("id"), IntValue("4"))),
       Nil,
       List(Field(None, Name("name"), Nil, Nil, Nil))
     )
@@ -210,7 +210,7 @@ class QueryParserSuite extends FunSuite:
     val field3Res = Field(
       None,
       Name("user"),
-      List(Argument(Name("id"), IntValue(4))),
+      List(Argument(Name("id"), IntValue("4"))),
       Nil,
       List(Field(None, Name("name"), Nil, Nil, Nil))
     )
@@ -289,7 +289,7 @@ class QueryParserSuite extends FunSuite:
         Field(
           alias = None,
           name = Name("likeStory"),
-          arguments = List(Argument(Name("storyID"), IntValue(12345))),
+          arguments = List(Argument(Name("storyID"), IntValue("12345"))),
           directives = Nil,
           selectionSet = List(
             Field(

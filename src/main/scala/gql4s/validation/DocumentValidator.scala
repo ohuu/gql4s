@@ -455,10 +455,15 @@ object DocumentValidator:
 
     val validatedDirectives = validateDirectives(varDef.directives, EDL.VARIABLE_DEFINITION)
 
+    val validatedDefaultValue = schema.findTypeDef[TypeDefinition](varDef.`type`.name) match
+      case Some(typeDef) => varDef.defaultValue.map(validateValue(_, typeDef)).sequence
+      case None          => None.valid
+
     (
       validatedVariableTypes,
-      validatedDirectives
-    ).mapN((_, _) => varDef)
+      validatedDirectives,
+      validatedDefaultValue
+    ).mapN((_, _, _) => varDef)
   end validateVariableDefinition
 
   private def validateVariableDefinitions(

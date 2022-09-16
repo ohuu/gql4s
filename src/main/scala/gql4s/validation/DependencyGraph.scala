@@ -5,16 +5,17 @@
 package gql4s
 package validation
 
-import cats.implicits.*
-import cats.data.ValidatedNec
 import scala.annotation.tailrec
-import scala.collection.mutable.LinkedHashMap
-import parsing.*
-import errors.*
-
-import GqlError.*
-import cats.kernel.Semigroup
 import scala.collection.mutable
+import scala.collection.mutable.LinkedHashMap
+
+import cats.data.ValidatedNec
+import cats.implicits.*
+import cats.kernel.Semigroup
+
+import errors.*
+import errors.GqlError.*
+import parsing.*
 
 type DependencyGraph[K] = LinkedHashMap[K, Set[Name]]
 
@@ -22,8 +23,7 @@ given [K <: HasName]: Semigroup[DependencyGraph[K]] with
   def combine(x: DependencyGraph[K], y: DependencyGraph[K]) = x ++ y
 
 /** @return
-  *   either a copy of the dependency graph topologically sorted, or a list of nodes which contain
-  *   cycles
+  *   either a copy of the dependency graph topologically sorted, or a list of nodes which contain cycles
   */
 def topologicalSort[K <: HasName](
     graph: DependencyGraph[K]

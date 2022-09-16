@@ -1,4 +1,4 @@
-val scala3Version = "3.1.3"
+val scala3Version = "3.2.0"
 
 lazy val catsParseVersion = "0.3.6"
 lazy val munitVersion     = "0.7.29"

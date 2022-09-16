@@ -14,6 +14,10 @@ import parsing.*
 import GqlError.*
 import Value.*
 import Type.*
+import scala.util.Try
+import scala.util.Success
+import scala.util.Failure
+import cats.data.Kleisli
 
 type Validated[T] = ValidatedNec[GqlError, T]
 
@@ -120,6 +124,50 @@ def validateInputObjectValue(
   validatedInObjVal.map(_ => inObjVal)
 end validateInputObjectValue
 
+def validateValue(value: Value, typeDef: TypeDefinition): Validated[Value] =
+  typeDef match
+    case ScalarTypeDefinition(Name("Int"), _) =>
+      value match
+        case v @ IntValue(value) =>
+          Try(value.toInt) match
+            case Success(_) => v.valid
+            case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
+        case v @ Variable(name) => ???
+        case v                  => TypeMismatch2(v, Name("Int")).invalidNec
+    case ScalarTypeDefinition(Name("Float"), _) =>
+      value match
+        case v @ FloatValue(value) =>
+          Try(value.toFloat) match
+            case Success(_) => v.valid
+            case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
+        case v => TypeMismatch2(v, Name("Float")).invalidNec
+    case ScalarTypeDefinition(Name("String"), _) =>
+      value match
+        case v @ StringValue(_) => v.valid
+        case v                  => TypeMismatch2(v, Name("String")).invalidNec
+    case ScalarTypeDefinition(Name("Boolean"), _) =>
+      value match
+        case v @ BooleanValue(value) =>
+          Try(value.toBoolean) match
+            case Success(_) => v.valid
+            case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
+        case v => TypeMismatch2(v, Name("Boolean")).invalidNec
+    case ScalarTypeDefinition(Name("ID"), _) =>
+      value match
+        case v @ StringValue(value) => v.valid
+        case v @ IntValue(value) =>
+          Try(value.toInt) match
+            case Success(_) => v.valid
+            case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
+        case v => TypeMismatch2(v, Name("ID")).invalidNec
+    case x: ScalarTypeDefinition      => ???
+    case x: ObjectTypeDefinition      => ???
+    case x: InterfaceTypeDefinition   => ???
+    case x: UnionTypeDefinition       => ???
+    case x: EnumTypeDefinition        => ???
+    case x: InputObjectTypeDefinition => ???
+end validateValue
+
 /**
  * Validate a fields arguments
  * @param args
@@ -129,9 +177,22 @@ end validateInputObjectValue
  * @param parentType
  *   The type of the object containing the field
  */
-def validateArguments(args: List[Argument], `def`: HasName & HasArgs)(using
+def validateArguments(args: List[Argument], `def`: FieldDefinition | DirectiveDefinition)(using
     schema: TypeSystemDocument
 ): Validated[List[Argument]] =
+  val validatedValues =
+    args.traverse(arg =>
+      val validatedArgDef = `def`.arguments.find(_.name == arg.name) match
+        case Some(argDef) => argDef.valid
+        case None         => MissingDefinition(arg.name).invalidNec
+
+      validatedArgDef.andThen(argDef =>
+        schema.findTypeDef[TypeDefinition](argDef.`type`.name) match
+          case Some(typeDef) => validateValue(arg.value, typeDef)
+          case None          => MissingDefinition(argDef.`type`.name).invalidNec
+      )
+    )
+
   val validatedArgs =
     args.map {
       case Argument(name, objVal: ObjectValue) =>
@@ -174,10 +235,11 @@ def validateArguments(args: List[Argument], `def`: HasName & HasArgs)(using
   )
 
   (
+    validatedValues,
     validatedArgs,
     validatedArgNames,
     validatedRequiredArgs
-  ).mapN((_, _, _) => args)
+  ).mapN((_, _, _, _) => args)
 end validateArguments
 
 /**
@@ -235,10 +297,9 @@ def validateDirectives(dirs: List[Directive], currLoc: DirectiveLocation)(using
 end validateDirectives
 
 // TODO:
-
 // ✔️✔️ 3.13 (why isn't this in section 5?!?) directive definitions need to be validated
 // 5.3.2 Field merging needs to be implemented (BIG)
-// ✔️ 5.4.1, 5.4.2 & 5.4.2.1 must also be applied to directives
+// ✔️✔️ 5.4.1, 5.4.2 & 5.4.2.1 must also be applied to directives
 // 5.5.2.3.4 Abstract spreads within abstract scope need to be validated
 // 5.6.1 Value type must be validated
 // 5.8.5 Variable usages must be valid (BIG)

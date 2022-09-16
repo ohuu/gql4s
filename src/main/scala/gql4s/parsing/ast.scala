@@ -5,13 +5,14 @@
 package gql4s
 package parsing
 
-import cats.data.NonEmptyList
 import scala.annotation.tailrec
+import scala.reflect.TypeTest
+
+import cats.data.NonEmptyList
 
 import OperationType.*
 import Type.*
 import Value.*
-import scala.reflect.TypeTest
 
 sealed trait HasType:
   def `type`: Type
@@ -45,13 +46,11 @@ case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
 
   def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
 
-  /**
-   * Finds unique uses of fragment spreads.
-   *
-   * @return
-   *   A list of fragment spreads which are used in the given document. No duplicates will exist in
-   *   the list.
-   */
+  /** Finds unique uses of fragment spreads.
+    *
+    * @return
+    *   A list of fragment spreads which are used in the given document. No duplicates will exist in the list.
+    */
   def findFragSpreads(): List[FragmentSpread] =
     @tailrec
     def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
@@ -156,18 +155,17 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
   def getTypeDef[T](using TypeTest[Any, T]): List[T] =
     (definitions ++ builtInScalarDefs).collect { case t: T => t }
 
-  /**
-   * Checks whether the given field exists within the given type.
-   *
-   * @param fieldName
-   *   The field we're looking for.
-   * @param namedType
-   *   The name of the type to search in.
-   * @param schema
-   *   The graphql schema.
-   * @return
-   *   Some MissingField error if the field cannot be found, None if it can.
-   */
+  /** Checks whether the given field exists within the given type.
+    *
+    * @param fieldName
+    *   The field we're looking for.
+    * @param namedType
+    *   The name of the type to search in.
+    * @param schema
+    *   The graphql schema.
+    * @return
+    *   Some MissingField error if the field cannot be found, None if it can.
+    */
   def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
     @tailrec
     def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
@@ -220,7 +218,7 @@ case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
 end TypeSystemDocument
 
 sealed trait Definition
-sealed trait ExecutableDefinition extends Definition
+sealed trait ExecutableDefinition extends Definition, HasName, HasDirectives, HasSelectionSet
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Queries
@@ -245,10 +243,10 @@ case class VariableDefinition(
 case class ObjectField(name: Name, value: Value) extends HasName
 enum Value:
   case Variable(name: Name)
-  case IntValue(value: Int)
-  case FloatValue(value: Float)
+  case IntValue(value: String)
+  case FloatValue(value: String)
   case StringValue(value: String)
-  case BooleanValue(value: Boolean)
+  case BooleanValue(value: String)
   case NullValue
   case ListValue(values: List[Value])
   case EnumValue(name: Name)
@@ -266,9 +264,7 @@ case class FragmentDefinition(
     on: NamedType,
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
-) extends ExecutableDefinition,
-      HasName,
-      HasDirectives
+) extends ExecutableDefinition
 
 type SelectionSet = NonEmptyList[Selection]
 sealed trait Selection // TODO: this should be an enum! Once HasName is a typeclass see if you can add an instance of HasName[FragmentSpread]
@@ -290,10 +286,7 @@ case class InlineFragment(
 ) extends Selection,
       HasDirectives
 
-case class FragmentSpread(name: Name, directives: List[Directive])
-    extends Selection,
-      HasName,
-      HasDirectives
+case class FragmentSpread(name: Name, directives: List[Directive]) extends Selection, HasName, HasDirectives
 
 // Operations
 enum OperationType:
@@ -305,10 +298,7 @@ case class OperationDefinition(
     variableDefinitions: List[VariableDefinition],
     directives: List[Directive],
     selectionSet: NonEmptyList[Selection]
-) extends ExecutableDefinition,
-      HasSelectionSet,
-      HasName,
-      HasDirectives
+) extends ExecutableDefinition
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Schema
@@ -336,12 +326,8 @@ case class SchemaExtension(directives: List[Directive], root: List[RootOperation
       HasDirectives
 
 // Scalar Type
-case class ScalarTypeDefinition(name: Name, directives: List[Directive])
-    extends TypeDefinition,
-      HasDirectives
-case class ScalarTypeExtension(name: Name, directives: List[Directive])
-    extends TypeExtension,
-      HasDirectives
+case class ScalarTypeDefinition(name: Name, directives: List[Directive]) extends TypeDefinition, HasDirectives
+case class ScalarTypeExtension(name: Name, directives: List[Directive])  extends TypeExtension, HasDirectives
 
 // Object Type
 case class InputValueDefinition(
@@ -363,12 +349,7 @@ case class FieldDefinition(
       HasArgs,
       HasDirectives
 
-trait ObjectLikeTypeDefinition
-    extends TypeDefinition,
-      HasName,
-      HasFields,
-      HasInterfaces,
-      HasDirectives:
+sealed trait ObjectLikeTypeDefinition extends TypeDefinition, HasName, HasFields, HasInterfaces, HasDirectives:
   def name: Name
   def fields: List[FieldDefinition]
   def interfaces: List[NamedType]
@@ -421,9 +402,7 @@ case class UnionTypeExtension(
       HasDirectives
 
 // Enum Type Definition
-case class EnumValueDefinition(value: EnumValue, directives: List[Directive])
-    extends HasName,
-      HasDirectives:
+case class EnumValueDefinition(value: EnumValue, directives: List[Directive]) extends HasName, HasDirectives:
   export value.*
 
 case class EnumTypeDefinition(

@@ -45,7 +45,9 @@ val name     = namePart.map(Name(_))
 
 // Int Value
 val integerPart = (char('-').?.with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
-val intValue    = integerPart.string.map(s => IntValue(s.toInt))
+val intValue = integerPart.string
+  // .map(_.toInt)
+  .map(IntValue(_))
 
 // Float Value
 val sign              = charIn('-', '+')
@@ -55,12 +57,12 @@ val fractionalPart    = (char('.') ~ digit.rep).string
 val floatValue =
   (integerPart ~ (exponentPart | (fractionalPart ~ exponentPart.?)) ~
     !(char('.') | alpha)).string
-    .map(_.toFloat)
+    // .map(_.toFloat)
     .map(FloatValue(_))
 
 // Boolean Value
 val booleanValue = (string("true") | string("false")).string
-  .map(_.toBoolean)
+  // .map(_.toBoolean)
   .map(BooleanValue(_))
 
 // // String Value
