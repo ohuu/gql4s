@@ -8,213 +8,181 @@ package parsing
 import scala.annotation.tailrec
 import scala.reflect.TypeTest
 
-import cats.data.NonEmptyList
-
 import OperationType.*
 import Type.*
 import Value.*
 
 sealed trait HasType:
-  def `type`: Type
+    def `type`: Type
 
 sealed trait HasName:
-  def name: Name
+    def name: Name
 
 sealed trait HasFields:
-  def fields: List[FieldDefinition]
+    def fields: List[FieldDefinition]
 
 sealed trait HasArgs:
-  def arguments: List[InputValueDefinition]
+    def arguments: List[InputValueDefinition]
 
 sealed trait HasInterfaces:
-  def interfaces: List[NamedType]
+    def interfaces: List[NamedType]
 
 sealed trait HasSelectionSet:
-  def selectionSet: SelectionSet
+    def selectionSet: List[Selection]
 
 sealed trait HasDirectives:
-  def directives: List[Directive]
+    def directives: List[Directive]
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
-case class ExecutableDocument(definitions: NonEmptyList[ExecutableDefinition]):
-  def findExecDef[T <: ExecutableDefinition](using TypeTest[Any, T]) =
-    definitions.collect { case t: T => t }
+case class ExecutableDocument(definitions: List[ExecutableDefinition]):
+// def findExecDef[T <: ExecutableDefinition](using TypeTest[Any, T]) =
+//     definitions.collect { case t: T => t }
 
-  def findFragDef(fragName: Name): Option[FragmentDefinition] =
-    definitions.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
+// def findFragDef(fragName: Name): Option[FragmentDefinition] =
+//     definitions.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
 
-  def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
+// def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
 
-  /** Finds unique uses of fragment spreads.
-    *
-    * @return
-    *   A list of fragment spreads which are used in the given document. No duplicates will exist in the list.
-    */
-  def findFragSpreads(): List[FragmentSpread] =
-    @tailrec
-    def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
-      accSelectionSet match
-        case Nil => acc
-        case head :: tail =>
-          head match
-            case Field(_, _, _, _, selectionSet)    => recurse(selectionSet ::: tail, acc)
-            case InlineFragment(_, _, selectionSet) => recurse(selectionSet.toList ::: tail, acc)
-            case spread: FragmentSpread =>
-              val acc2 = if acc.contains(spread) then acc else spread :: acc
-              recurse(tail, acc2)
-    end recurse
+// /** Finds unique uses of fragment spreads.
+//   *
+//   * @return
+//   *   A list of fragment spreads which are used in the given document. No duplicates will exist in the list.
+//   */
+// def findFragSpreads(): List[FragmentSpread] =
+//     @tailrec
+//     def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
+//         accSelectionSet match
+//             case Nil => acc
+//             case head :: tail =>
+//                 head match
+//                     case Field(_, _, _, _, selectionSet)    => recurse(selectionSet ::: tail, acc)
+//                     case InlineFragment(_, _, selectionSet) => recurse(selectionSet.toList ::: tail, acc)
+//                     case spread: FragmentSpread =>
+//                         val acc2 = if acc.contains(spread) then acc else spread :: acc
+//                         recurse(tail, acc2)
+//     end recurse
 
-    definitions
-      .collect { case o: OperationDefinition => o }
-      .map(_.selectionSet.toList)
-      .flatMap(recurse(_, Nil))
-  end findFragSpreads
+//     definitions
+//         .collect { case o: OperationDefinition => o }
+//         .map(_.selectionSet.toList)
+//         .flatMap(recurse(_, Nil))
+// end findFragSpreads
 end ExecutableDocument
 
-case class TypeSystemDocument(definitions: NonEmptyList[TypeSystemDefinition]):
-  val builtInScalarDefs = List(
-    ScalarTypeDefinition(Name("Int"), Nil),
-    ScalarTypeDefinition(Name("Float"), Nil),
-    ScalarTypeDefinition(Name("String"), Nil),
-    ScalarTypeDefinition(Name("Boolean"), Nil),
-    ScalarTypeDefinition(Name("ID"), Nil)
-  )
-
-  val builtInDirectiveDefs = List(
-    DirectiveDefinition(
-      Name("skip"),
-      List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
-      false,
-      NonEmptyList.of(
-        ExecutableDirectiveLocation.FIELD,
-        ExecutableDirectiveLocation.FRAGMENT_SPREAD,
-        ExecutableDirectiveLocation.INLINE_FRAGMENT
-      )
-    ),
-    DirectiveDefinition(
-      Name("include"),
-      List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
-      false,
-      NonEmptyList.of(
-        ExecutableDirectiveLocation.FIELD,
-        ExecutableDirectiveLocation.FRAGMENT_SPREAD,
-        ExecutableDirectiveLocation.INLINE_FRAGMENT
-      )
-    ),
-    DirectiveDefinition(
-      Name("deprecated"),
-      List(InputValueDefinition(Name("reason"), NamedType(Name("String")), None, Nil)),
-      false,
-      NonEmptyList.of(
-        TypeSystemDirectiveLocation.FIELD_DEFINITION,
-        TypeSystemDirectiveLocation.ENUM_VALUE
-      )
-    ),
-    DirectiveDefinition(
-      Name("specifiedBy"),
-      List(InputValueDefinition(Name("url"), NonNullType(NamedType(Name("String"))), None, Nil)),
-      false,
-      NonEmptyList.of(TypeSystemDirectiveLocation.SCALAR)
+case class TypeSystemDocument(definitions: List[TypeSystemDefinition]):
+    val builtInScalarDefs = List(
+      ScalarTypeDefinition(Name("Int"), Nil),
+      ScalarTypeDefinition(Name("Float"), Nil),
+      ScalarTypeDefinition(Name("String"), Nil),
+      ScalarTypeDefinition(Name("Boolean"), Nil),
+      ScalarTypeDefinition(Name("ID"), Nil)
     )
-  )
 
-  def isLeafType(name: Name): Boolean = name.text match
-    case "Int" | "Float" | "String" | "Boolean" | "ID" => true
-    case _                                             => false
+    val builtInDirectiveDefs = List(
+      DirectiveDefinition(
+        Name("skip"),
+        List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+        false,
+        List(
+          ExecutableDirectiveLocation.FIELD,
+          ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+          ExecutableDirectiveLocation.INLINE_FRAGMENT
+        )
+      ),
+      DirectiveDefinition(
+        Name("include"),
+        List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+        false,
+        List(
+          ExecutableDirectiveLocation.FIELD,
+          ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+          ExecutableDirectiveLocation.INLINE_FRAGMENT
+        )
+      ),
+      DirectiveDefinition(
+        Name("deprecated"),
+        List(InputValueDefinition(Name("reason"), NamedType(Name("String")), None, Nil)),
+        false,
+        List(
+          TypeSystemDirectiveLocation.FIELD_DEFINITION,
+          TypeSystemDirectiveLocation.ENUM_VALUE
+        )
+      ),
+      DirectiveDefinition(
+        Name("specifiedBy"),
+        List(InputValueDefinition(Name("url"), NonNullType(NamedType(Name("String"))), None, Nil)),
+        false,
+        List(TypeSystemDirectiveLocation.SCALAR)
+      )
+    )
 
-  def isInputType(`type`: Type): Boolean = `type` match
-    case NonNullType(tpe) => isInputType(tpe)
-    case ListType(tpe)    => isInputType(tpe)
-    case NamedType(name) =>
-      findTypeDef[TypeDefinition](name) match
-        case Some(_: ScalarTypeDefinition)      => true
-        case Some(_: EnumTypeDefinition)        => true
-        case Some(_: InputObjectTypeDefinition) => true
-        case _                                  => isLeafType(name)
-  end isInputType
+    // def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
+    //     (definitions ++ builtInScalarDefs).collect { case t: T => t }.find(_.name == name)
 
-  def isOutputType(`type`: Type): Boolean = `type` match
-    case NonNullType(tpe) => isOutputType(tpe)
-    case ListType(tpe)    => isOutputType(tpe)
-    case NamedType(name) =>
-      findTypeDef[TypeDefinition](name) match
-        case Some(_: ScalarTypeDefinition)    => true
-        case Some(_: ObjectTypeDefinition)    => true
-        case Some(_: InterfaceTypeDefinition) => true
-        case Some(_: UnionTypeDefinition)     => true
-        case Some(_: EnumTypeDefinition)      => true
-        case _                                => isLeafType(name)
-  end isOutputType
+    // def getTypeDef[T](using TypeTest[Any, T]): List[T] =
+    //     (definitions ++ builtInScalarDefs).collect { case t: T => t }
 
-  def isObjectType(name: Name): Boolean = findTypeDef[ObjectTypeDefinition](name).isDefined
+    // /** Checks whether the given field exists within the given type.
+    //   *
+    //   * @param fieldName
+    //   *   The field we're looking for.
+    //   * @param namedType
+    //   *   The name of the type to search in.
+    //   * @param schema
+    //   *   The graphql schema.
+    //   * @return
+    //   *   Some MissingField error if the field cannot be found, None if it can.
+    //   */
+    // def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
+    //     @tailrec
+    //     def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
+    //         namedTypes match
+    //             case Nil => None
+    //             case namedType :: tail =>
+    //                 val typeDef = findTypeDef[TypeDefinition](namedType.name)
 
-  def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
-    (definitions ++ builtInScalarDefs).collect { case t: T => t }.find(_.name == name)
+    //                 typeDef match
+    //                     case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
+    //                         val fieldDef = fields.find(_.name == fieldName)
+    //                         if fieldDef.isDefined then fieldDef
+    //                         else recurse(interfaces ::: tail)
 
-  def getTypeDef[T](using TypeTest[Any, T]): List[T] =
-    (definitions ++ builtInScalarDefs).collect { case t: T => t }
+    //                     case Some(InterfaceTypeDefinition(_, interfaces, _, fields)) =>
+    //                         val fieldDef = fields.find(_.name == fieldName)
+    //                         if fieldDef.isDefined then fieldDef
+    //                         else recurse(interfaces ::: tail)
 
-  /** Checks whether the given field exists within the given type.
-    *
-    * @param fieldName
-    *   The field we're looking for.
-    * @param namedType
-    *   The name of the type to search in.
-    * @param schema
-    *   The graphql schema.
-    * @return
-    *   Some MissingField error if the field cannot be found, None if it can.
-    */
-  def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
-    @tailrec
-    def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
-      namedTypes match
-        case Nil => None
-        case namedType :: tail =>
-          val typeDef = findTypeDef[TypeDefinition](namedType.name)
+    //                     case Some(UnionTypeDefinition(_, _, members)) =>
+    //                         recurse(members ::: tail)
 
-          typeDef match
-            case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
-              val fieldDef = fields.find(_.name == fieldName)
-              if fieldDef.isDefined then fieldDef
-              else recurse(interfaces ::: tail)
+    //                     // The type that we're checking exists but isn't a type with fields
+    //                     // therefore the field can't exist so we just return false
+    //                     case _ => None
+    //     end recurse
 
-            case Some(InterfaceTypeDefinition(_, interfaces, _, fields)) =>
-              val fieldDef = fields.find(_.name == fieldName)
-              if fieldDef.isDefined then fieldDef
-              else recurse(interfaces ::: tail)
+    //     recurse(List(namedType))
+    // end findFieldDef
 
-            case Some(UnionTypeDefinition(_, _, members)) =>
-              recurse(members ::: tail)
+    // def findOpTypeDef(opType: OperationType): Option[ObjectTypeDefinition] =
+    //     val schemaDef = definitions.collect { case s: SchemaDefinition => s }.headOption
+    //     schemaDef match
+    //         case Some(SchemaDefinition(_, roots)) =>
+    //             roots
+    //                 .find(_.operationType == opType)
+    //                 .map(_.namedType.name)
+    //                 .flatMap(findTypeDef[ObjectTypeDefinition])
+    //         case None =>
+    //             opType match
+    //                 case Query        => findTypeDef[ObjectTypeDefinition](Name("Query"))
+    //                 case Mutation     => findTypeDef[ObjectTypeDefinition](Name("Mutation"))
+    //                 case Subscription => findTypeDef[ObjectTypeDefinition](Name("Subscription"))
+    // end findOpTypeDef
 
-            // The type that we're checking exists but isn't a type with fields
-            // therefore the field can't exist so we just return false
-            case _ => None
-    end recurse
-
-    recurse(List(namedType))
-  end findFieldDef
-
-  def findOpTypeDef(opType: OperationType): Option[ObjectTypeDefinition] =
-    val schemaDef = definitions.collect { case s: SchemaDefinition => s }.headOption
-    schemaDef match
-      case Some(SchemaDefinition(_, roots)) =>
-        roots
-          .find(_.operationType == opType)
-          .map(_.namedType.name)
-          .flatMap(findTypeDef[ObjectTypeDefinition])
-      case None =>
-        opType match
-          case Query        => findTypeDef[ObjectTypeDefinition](Name("Query"))
-          case Mutation     => findTypeDef[ObjectTypeDefinition](Name("Mutation"))
-          case Subscription => findTypeDef[ObjectTypeDefinition](Name("Subscription"))
-  end findOpTypeDef
-
-  def findDirectiveDef(name: Name): Option[DirectiveDefinition] =
-    (definitions ++ builtInDirectiveDefs)
-      .collect { case t: DirectiveDefinition => t }
-      .find(_.name == name)
+    // def findDirectiveDef(name: Name): Option[DirectiveDefinition] =
+    //     (definitions ++ builtInDirectiveDefs)
+    //         .collect { case t: DirectiveDefinition => t }
+    //         .find(_.name == name)
 end TypeSystemDocument
 
 sealed trait Definition
@@ -226,9 +194,9 @@ case class Name(text: String)
 
 // Types
 enum Type(val name: Name) extends HasName:
-  case NamedType(override val name: Name) extends Type(name)
-  case NonNullType(`type`: Type)          extends Type(`type`.name)
-  case ListType(`type`: Type)             extends Type(`type`.name)
+    case NamedType(override val name: Name) extends Type(name)
+    case NonNullType(`type`: Type)          extends Type(`type`.name)
+    case ListType(`type`: Type)             extends Type(`type`.name)
 
 // Values
 case class VariableDefinition(
@@ -242,15 +210,15 @@ case class VariableDefinition(
 
 case class ObjectField(name: Name, value: Value) extends HasName
 enum Value:
-  case Variable(name: Name)
-  case IntValue(value: String)
-  case FloatValue(value: String)
-  case StringValue(value: String)
-  case BooleanValue(value: String)
-  case NullValue
-  case ListValue(values: List[Value])
-  case EnumValue(name: Name)
-  case ObjectValue(fields: List[ObjectField])
+    case Variable(name: Name)
+    case IntValue(value: String)
+    case FloatValue(value: String)
+    case StringValue(value: String)
+    case BooleanValue(value: String)
+    case NullValue
+    case ListValue(values: List[Value])
+    case EnumValue(name: Name)
+    case ObjectValue(fields: List[ObjectField])
 
 // Arguments
 case class Argument(name: Name, value: Value) extends HasName
@@ -263,10 +231,9 @@ case class FragmentDefinition(
     override val name: Name,
     on: NamedType,
     directives: List[Directive],
-    selectionSet: NonEmptyList[Selection]
+    selectionSet: List[Selection]
 ) extends ExecutableDefinition
 
-type SelectionSet = NonEmptyList[Selection]
 sealed trait Selection // TODO: this should be an enum! Once HasName is a typeclass see if you can add an instance of HasName[FragmentSpread]
 
 case class Field(
@@ -277,27 +244,29 @@ case class Field(
     selectionSet: List[Selection]
 ) extends Selection,
       HasName,
-      HasDirectives
+      HasDirectives,
+      HasSelectionSet
 
 case class InlineFragment(
     onType: Option[Type.NamedType],
     directives: List[Directive],
-    selectionSet: NonEmptyList[Selection]
+    selectionSet: List[Selection]
 ) extends Selection,
-      HasDirectives
+      HasDirectives,
+      HasSelectionSet
 
 case class FragmentSpread(name: Name, directives: List[Directive]) extends Selection, HasName, HasDirectives
 
 // Operations
 enum OperationType:
-  case Query, Mutation, Subscription
+    case Query, Mutation, Subscription
 
 case class OperationDefinition(
     name: Name,
     operationType: OperationType,
     variableDefinitions: List[VariableDefinition],
     directives: List[Directive],
-    selectionSet: NonEmptyList[Selection]
+    selectionSet: List[Selection]
 ) extends ExecutableDefinition
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -307,17 +276,17 @@ sealed trait TypeSystemExtension             extends Definition
 sealed trait TypeSystemDefinitionOrExtension extends Definition
 
 sealed trait TypeDefinition extends TypeSystemDefinition, HasName, HasDirectives:
-  def name: Name
-  def directives: List[Directive]
+    def name: Name
+    def directives: List[Directive]
 
 sealed trait TypeExtension extends TypeSystemExtension, HasName:
-  def name: Name
+    def name: Name
 
 case class RootOperationTypeDefinition(operationType: OperationType, namedType: NamedType)
 
 case class SchemaDefinition(
     directives: List[Directive],
-    rootOperationTypeDefinition: NonEmptyList[RootOperationTypeDefinition]
+    rootOperationTypeDefinition: List[RootOperationTypeDefinition]
 ) extends TypeSystemDefinition,
       HasDirectives
 
@@ -350,10 +319,10 @@ case class FieldDefinition(
       HasDirectives
 
 sealed trait ObjectLikeTypeDefinition extends TypeDefinition, HasName, HasFields, HasInterfaces, HasDirectives:
-  def name: Name
-  def fields: List[FieldDefinition]
-  def interfaces: List[NamedType]
-  def directives: List[Directive]
+    def name: Name
+    def fields: List[FieldDefinition]
+    def interfaces: List[NamedType]
+    def directives: List[Directive]
 
 case class ObjectTypeDefinition(
     name: Name,
@@ -403,7 +372,7 @@ case class UnionTypeExtension(
 
 // Enum Type Definition
 case class EnumValueDefinition(value: EnumValue, directives: List[Directive]) extends HasName, HasDirectives:
-  export value.*
+    export value.*
 
 case class EnumTypeDefinition(
     name: Name,
@@ -427,7 +396,7 @@ case class InputObjectTypeDefinition(
 ) extends TypeDefinition,
       HasArgs,
       HasDirectives:
-  def arguments = fields // Although these appear as fields they are also (kind of) arguments
+    def arguments = fields // Although these appear as fields they are also (kind of) arguments
 
 case class InputObjectTypeExtension(
     name: Name,
@@ -440,18 +409,18 @@ case class InputObjectTypeExtension(
 sealed trait DirectiveLocation
 
 enum TypeSystemDirectiveLocation extends DirectiveLocation:
-  case SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM,
-    ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
+    case SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM,
+        ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
 
 enum ExecutableDirectiveLocation extends DirectiveLocation:
-  case QUERY, MUTATION, SUBSCRIPTION, FIELD, FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT,
-    VARIABLE_DEFINITION
+    case QUERY, MUTATION, SUBSCRIPTION, FIELD, FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT,
+        VARIABLE_DEFINITION
 
 case class DirectiveDefinition(
     name: Name,
     arguments: List[InputValueDefinition],
     repeatable: Boolean,
-    directiveLocs: NonEmptyList[DirectiveLocation]
+    directiveLocs: List[DirectiveLocation]
 ) extends TypeSystemDefinition,
       HasName,
       HasArgs

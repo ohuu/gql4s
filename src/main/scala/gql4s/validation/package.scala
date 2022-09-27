@@ -6,294 +6,346 @@ package gql4s
 package validation
 
 import scala.annotation.tailrec
+import scala.runtime.BooleanRef
+import scala.util.Failure
+import scala.util.Success
+import scala.util.Try
+
+import cats.data.Kleisli
 import cats.data.ValidatedNec
 import cats.implicits.*
-import errors.GqlError
-import parsing.*
 
-import GqlError.*
-import Value.*
-import Type.*
-import scala.util.Try
-import scala.util.Success
-import scala.util.Failure
-import cats.data.Kleisli
+import errors.GqlError
+import errors.GqlError.*
+import parsing.*
+import parsing.Type.*
+import parsing.Value.*
 
 type Validated[T] = ValidatedNec[GqlError, T]
 
+def isLeafType(name: Name): Boolean = name.text match
+    case "Int" | "Float" | "String" | "Boolean" | "ID" => true
+    case _                                             => false
+
+def isObjectType(name: Name)(using ctx: SchemaContext): Boolean = ctx.typeDef(name) match
+    case Some(_: ObjectTypeDefinition) => true
+    case _                             => false
+
+def isInputType(`type`: Type)(using ctx: SchemaContext): Boolean = `type` match
+    case NonNullType(tpe) => isInputType(tpe)
+    case ListType(tpe)    => isInputType(tpe)
+    case NamedType(name) =>
+        ctx.typeDef(name) match
+            case Some(_: ScalarTypeDefinition)      => true
+            case Some(_: EnumTypeDefinition)        => true
+            case Some(_: InputObjectTypeDefinition) => true
+            case _                                  => isLeafType(name)
+
+def isOutputType(`type`: Type)(using ctx: SchemaContext): Boolean = `type` match
+    case NonNullType(tpe) => isOutputType(tpe)
+    case ListType(tpe)    => isOutputType(tpe)
+    case NamedType(name) =>
+        ctx.typeDef(name) match
+            case Some(_: ScalarTypeDefinition)    => true
+            case Some(_: ObjectTypeDefinition)    => true
+            case Some(_: InterfaceTypeDefinition) => true
+            case Some(_: UnionTypeDefinition)     => true
+            case Some(_: EnumTypeDefinition)      => true
+            case _                                => isLeafType(name)
+
 def validateUniqueName[T <: HasName](ts: List[T]): Validated[List[T]] = ts
-  .groupBy(_.name)
-  .toList
-  .traverse {
-    case (_, occurance :: Nil) => occurance.validNec
-    case (name, _)             => DuplicateName(name).invalidNec
-  }
+    .groupBy(_.name)
+    .toList
+    .traverse {
+        case (_, occurance :: Nil) => occurance.validNec
+        case (name, _)             => DuplicateName(name).invalidNec
+    }
 
 def validateIsUsed(definitions: List[Name], references: List[Name]): Validated[List[Name]] =
-  definitions
-    .traverse(definition =>
-      if references.contains(definition) then definition.validNec
-      else UnusedDefinition(definition).invalidNec
-    )
+    definitions
+        .traverse(definition =>
+            if references.contains(definition) then definition.validNec
+            else UnusedDefinition(definition).invalidNec
+        )
 
-/**
- *   - 5.6.2 input object field exists
- *   - 5.6.3 input object field duplicates
- *   - 5.6.4 input objects required fields
- */
+def validateCovariant(a: Type, b: Type)(using ctx: SchemaContext): Validated[Type] =
+    @tailrec
+    def validate(aType: Type, bType: Type): Boolean =
+        (aType, bType) match
+            case (NonNullType(a), NonNullType(b)) => validate(a, b)
+            case (NonNullType(a), b)              => validate(a, b)
+            case (ListType(a), ListType(b))       => validate(a, b)
+            case (ListType(a), b)                 => false
+            case (a: NamedType, b: NamedType) =>
+                val aTypeDef = ctx.typeDef(a.name)
+                val bTypeDef = ctx.typeDef(b.name)
+
+                (aTypeDef, bTypeDef) match
+                    case (Some(a), Some(b)) if a.name == b.name => true
+                    case (Some(_: ObjectTypeDefinition), Some(bUnion: UnionTypeDefinition)) =>
+                        bUnion.unionMemberTypes.contains(a)
+                    case (Some(aObj: ObjectLikeTypeDefinition), Some(_: InterfaceTypeDefinition)) =>
+                        aObj.interfaces.contains(b)
+                    case _ => false
+            case (a, _) => false
+    end validate
+
+    if validate(a, b) then a.validNec
+    else InvalidType(a, Some(s"$a is not covariant with $b")).invalidNec
+end validateCovariant
+
+/**   - 5.6.4 input objects required fields
+  */
+def validateRequiredFields(
+    objValue: ObjectValue,
+    inObjTypeDef: InputObjectTypeDefinition
+): Validated[List[ObjectField]] =
+    inObjTypeDef.fields
+        .filter(_.`type`.isInstanceOf[NonNullType])
+        .traverse(inputValDef =>
+            objValue.fields.find(_.name == inputValDef.name) match
+                case None           => MissingField2(inputValDef.name, NamedType(inObjTypeDef.name)).invalidNec
+                case Some(objField) => objField.validNec[GqlError]
+        )
+
+/**   - 5.6.2 input object field exists
+  *   - 5.6.3 input object field duplicates
+  */
 def validateInputObjectValue(
     inObjVal: ObjectValue,
     inValDef: InputValueDefinition
-)(using schema: TypeSystemDocument): Validated[ObjectValue] =
-  @tailrec
-  def recurse(
-      inObjs: List[(ObjectField, InputObjectTypeDefinition)],
-      acc: Validated[Unit]
-  ): Validated[Unit] =
-    inObjs match
-      case Nil => acc
+)(using ctx: SchemaContext): Validated[List[ObjectValue]] =
+    @tailrec
+    def recurse(
+        inObjs: List[(ObjectField, InputObjectTypeDefinition)],
+        acc: Validated[List[ObjectValue]]
+    ): Validated[List[ObjectValue]] =
+        inObjs match
+            case Nil => acc
 
-      case (ObjectField(name, value: ObjectValue), inObjTypeDef) :: tail =>
-        // 5.6.3 input object field duplicates
-        val validatedFieldNames = validateUniqueName(value.fields).map(_ => ())
+            case (ObjectField(name, value: ObjectValue), inObjTypeDef) :: tail =>
+                // 5.6.2 input object field exists
+                inObjTypeDef.fields.find(_.name == name) match
+                    case None =>
+                        val parentType: NamedType = NamedType(inObjTypeDef.name)
+                        val validations = (
+                          MissingField2(name, parentType).invalidNec,
+                          validateUniqueName(value.fields) // 5.6.3 input object field duplicates
+                        ).mapN((_, _) => List(inObjVal))
 
-        // 5.6.2 input object field exists
-        inObjTypeDef.fields.find(_.name == name) match
-          case None =>
-            val parentType: NamedType = NamedType(inObjTypeDef.name)
-            val validatedMissingField = MissingField2(name, parentType).invalidNec
-            recurse(tail, validatedFieldNames combine validatedMissingField combine acc)
-          case Some(inValDef) =>
-            schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
-              case None =>
-                val validatedMissingDef = MissingDefinition(inValDef.`type`.name).invalidNec
-                recurse(tail, validatedFieldNames combine validatedMissingDef combine acc)
-              case Some(inObjTypeDef) =>
-                // 5.6.4 input objects required fields
-                val validatedRequiredFields = inObjTypeDef.fields
-                  .filter(_.`type`.isInstanceOf[NonNullType])
-                  .traverse(inputValDef =>
-                    value.fields.find(_.name == inputValDef.name) match
-                      case None =>
-                        MissingField2(inputValDef.name, NamedType(inObjTypeDef.name))
-                          .invalidNec[Unit]
-                      case Some(_) => ().validNec[GqlError]
-                  )
-                  .map(_ => ())
+                        recurse(tail, validations combine acc)
 
-                recurse(
-                  value.fields.map(_ -> inObjTypeDef) ::: tail,
-                  validatedFieldNames combine validatedRequiredFields combine acc
-                )
+                    case Some(inValDef) =>
+                        ctx.typeDef(inValDef.`type`.name) match
+                            case Some(inObjTypeDef: InputObjectTypeDefinition) =>
+                                val validations = (
+                                  validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
+                                  validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
+                                ).mapN((_, _) => List(inObjVal))
 
-      case (ObjectField(name, value), inObjTypeDef) :: tail =>
-        // 5.6.2 input object field exists
-        inObjTypeDef.fields.find(_.name == name) match
-          case None =>
-            val validatedMissingField =
-              MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec
-            recurse(tail, validatedMissingField combine acc)
-          case Some(_) => recurse(tail, acc)
-  end recurse
+                                recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, validations combine acc)
 
-  // 5.6.3 input object field duplicates
-  val validatedFieldNames = validateUniqueName(inObjVal.fields).map(_ => ())
+                            case _ =>
+                                val validations = (
+                                  MissingDefinition(inValDef.`type`.name).invalidNec,
+                                  validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
+                                  validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
+                                ).mapN((_, _, _) => List(inObjVal))
 
-  val validatedInObjVal =
-    schema.findTypeDef[InputObjectTypeDefinition](inValDef.`type`.name) match
-      case None =>
-        val validatedTypeDef = MissingDefinition(inValDef.`type`.name).invalidNec[Unit]
-        validatedFieldNames combine validatedTypeDef
-      case Some(inObjTypeDef) =>
-        // 5.6.4 input objects required fields
-        val validatedRequiredFields = inObjTypeDef.fields
-          .filter(_.`type`.isInstanceOf[NonNullType])
-          .map(_.name)
-          .map(name =>
-            inObjVal.fields.find(_.name == name) match
-              case None    => MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec
-              case Some(_) => ().validNec
-          )
-          .reduceLeft(_ combine _)
+                                recurse(tail, validations combine acc)
 
-        recurse(
-          inObjVal.fields.map(_ -> inObjTypeDef),
-          validatedFieldNames combine validatedRequiredFields
-        )
+            case (ObjectField(name, value), inObjTypeDef) :: tail =>
+                // 5.6.2 input object field exists
+                inObjTypeDef.fields.find(_.name == name) match
+                    case None =>
+                        val validatedMissingField = MissingField2(name, NamedType(inObjTypeDef.name)).invalidNec
+                        recurse(tail, validatedMissingField combine acc)
+                    case Some(_) => recurse(tail, acc)
+    end recurse
 
-  validatedInObjVal.map(_ => inObjVal)
+    ctx.typeDef(inValDef.`type`.name) match
+        case Some(inObjTypeDef: InputObjectTypeDefinition) =>
+            val validations = (
+              validateUniqueName(inObjVal.fields),           // 5.6.3 input object field duplicates
+              validateRequiredFields(inObjVal, inObjTypeDef) // 5.6.4 input objects required fields
+            ).mapN((_, _) => List(inObjVal))
+
+            recurse(inObjVal.fields.map(_ -> inObjTypeDef), validations)
+
+        case _ =>
+            (
+              MissingDefinition(inValDef.`type`.name).invalidNec,
+              validateUniqueName(inObjVal.fields) // 5.6.3 input object field duplicates
+            ).mapN((_, _) => List(inObjVal))
 end validateInputObjectValue
 
 def validateValue(value: Value, typeDef: TypeDefinition): Validated[Value] =
-  typeDef match
-    case ScalarTypeDefinition(Name("Int"), _) =>
-      value match
-        case v @ IntValue(value) =>
-          Try(value.toInt) match
-            case Success(_) => v.valid
-            case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
-        case v @ Variable(name) => ???
-        case v                  => TypeMismatch2(v, Name("Int")).invalidNec
-    case ScalarTypeDefinition(Name("Float"), _) =>
-      value match
-        case v @ FloatValue(value) =>
-          Try(value.toFloat) match
-            case Success(_) => v.valid
-            case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
-        case v => TypeMismatch2(v, Name("Float")).invalidNec
-    case ScalarTypeDefinition(Name("String"), _) =>
-      value match
-        case v @ StringValue(_) => v.valid
-        case v                  => TypeMismatch2(v, Name("String")).invalidNec
-    case ScalarTypeDefinition(Name("Boolean"), _) =>
-      value match
-        case v @ BooleanValue(value) =>
-          Try(value.toBoolean) match
-            case Success(_) => v.valid
-            case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
-        case v => TypeMismatch2(v, Name("Boolean")).invalidNec
-    case ScalarTypeDefinition(Name("ID"), _) =>
-      value match
-        case v @ StringValue(value) => v.valid
-        case v @ IntValue(value) =>
-          Try(value.toInt) match
-            case Success(_) => v.valid
-            case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
-        case v => TypeMismatch2(v, Name("ID")).invalidNec
-    case x: ScalarTypeDefinition      => ???
-    case x: ObjectTypeDefinition      => ???
-    case x: InterfaceTypeDefinition   => ???
-    case x: UnionTypeDefinition       => ???
-    case x: EnumTypeDefinition        => ???
-    case x: InputObjectTypeDefinition => ???
+    typeDef match
+        case ScalarTypeDefinition(Name("Int"), _) =>
+            value match
+                case v @ IntValue(value) =>
+                    Try(value.toInt) match
+                        case Success(_) => v.valid
+                        case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
+                case v @ Variable(name) => ???
+                case v                  => TypeMismatch2(v, Name("Int")).invalidNec
+        case ScalarTypeDefinition(Name("Float"), _) =>
+            value match
+                case v @ FloatValue(value) =>
+                    Try(value.toFloat) match
+                        case Success(_) => v.valid
+                        case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
+                case v => TypeMismatch2(v, Name("Float")).invalidNec
+        case ScalarTypeDefinition(Name("String"), _) =>
+            value match
+                case v @ StringValue(_) => v.valid
+                case v                  => TypeMismatch2(v, Name("String")).invalidNec
+        case ScalarTypeDefinition(Name("Boolean"), _) =>
+            value match
+                case v @ BooleanValue(value) =>
+                    Try(value.toBoolean) match
+                        case Success(_) => v.valid
+                        case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
+                case v => TypeMismatch2(v, Name("Boolean")).invalidNec
+        case ScalarTypeDefinition(Name("ID"), _) =>
+            value match
+                case v @ StringValue(value) => v.valid
+                case v @ IntValue(value) =>
+                    Try(value.toInt) match
+                        case Success(_) => v.valid
+                        case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
+                case v => TypeMismatch2(v, Name("ID")).invalidNec
+        case x: ScalarTypeDefinition      => ???
+        case x: ObjectTypeDefinition      => ???
+        case x: InterfaceTypeDefinition   => ???
+        case x: UnionTypeDefinition       => ???
+        case x: EnumTypeDefinition        => ???
+        case x: InputObjectTypeDefinition => ???
 end validateValue
 
-/**
- * Validate a fields arguments
- * @param args
- *   The arguments we will validate.
- * @param def
- *   The definition the arguments belong to (either field or directive definition)
- * @param parentType
- *   The type of the object containing the field
- */
+/** Validate a fields arguments
+  * @param args
+  *   The arguments we will validate.
+  * @param def
+  *   The definition the arguments belong to (either field or directive definition)
+  * @param parentType
+  *   The type of the object containing the field
+  */
 def validateArguments(args: List[Argument], `def`: FieldDefinition | DirectiveDefinition)(using
-    schema: TypeSystemDocument
+    ctx: SchemaContext
 ): Validated[List[Argument]] =
-  val validatedValues =
-    args.traverse(arg =>
-      val validatedArgDef = `def`.arguments.find(_.name == arg.name) match
-        case Some(argDef) => argDef.valid
-        case None         => MissingDefinition(arg.name).invalidNec
+    val validatedValues =
+        args.traverse(arg =>
+            val validatedArgDef = `def`.arguments.find(_.name == arg.name) match
+                case Some(argDef) => argDef.valid
+                case None         => MissingDefinition(arg.name).invalidNec
 
-      validatedArgDef.andThen(argDef =>
-        schema.findTypeDef[TypeDefinition](argDef.`type`.name) match
-          case Some(typeDef) => validateValue(arg.value, typeDef)
-          case None          => MissingDefinition(argDef.`type`.name).invalidNec
-      )
+            validatedArgDef.andThen(argDef =>
+                ctx.typeDef(argDef.`type`.name) match
+                    case Some(typeDef) => validateValue(arg.value, typeDef)
+                    case None          => MissingDefinition(argDef.`type`.name).invalidNec
+            )
+        )
+
+    val validatedArgs =
+        args.map {
+            case Argument(name, objVal: ObjectValue) =>
+                // 5.4.1 args exist
+                `def`.arguments.find(_.name == name) match
+                    case None =>
+                        MissingDefinition(
+                          name,
+                          Some(s"in definition ${`def`.name}")
+                        ).invalidNec
+                    case Some(inValDef) =>
+                        validateInputObjectValue(objVal, inValDef).map(_ => ())
+
+            case Argument(name, _) =>
+                // 5.4.1 args exist
+                `def`.arguments.find(_.name == name) match
+                    case None =>
+                        MissingDefinition(
+                          name,
+                          Some(s"in definition ${`def`.name}")
+                        ).invalidNec
+                    case _ => ().validNec
+        }.combineAll
+
+    // 5.4.2 args are unique
+    val validatedArgNames = validateUniqueName(args).map(_ => ())
+
+    // 5.4.2.1 required args
+    val requiredArgs =
+        `def`.arguments
+            .filter {
+                case InputValueDefinition(_, _: NonNullType, None, _) => true
+                case _                                                => false
+            }
+            .map(_.name)
+    val validatedRequiredArgs = requiredArgs.traverse(argName =>
+        args.find(_.name == argName) match
+            case None    => MissingArgument2(argName).invalidNec
+            case Some(_) => ().validNec
     )
 
-  val validatedArgs =
-    args.map {
-      case Argument(name, objVal: ObjectValue) =>
-        // 5.4.1 args exist
-        `def`.arguments.find(_.name == name) match
-          case None =>
-            MissingDefinition(
-              name,
-              Some(s"in definition ${`def`.name}")
-            ).invalidNec
-          case Some(inValDef) =>
-            validateInputObjectValue(objVal, inValDef).map(_ => ())
-
-      case Argument(name, _) =>
-        // 5.4.1 args exist
-        `def`.arguments.find(_.name == name) match
-          case None =>
-            MissingDefinition(
-              name,
-              Some(s"in definition ${`def`.name}")
-            ).invalidNec
-          case _ => ().validNec
-    }.combineAll
-
-  // 5.4.2 args are unique
-  val validatedArgNames = validateUniqueName(args).map(_ => ())
-
-  // 5.4.2.1 required args
-  val requiredArgs =
-    `def`.arguments
-      .filter {
-        case InputValueDefinition(_, _: NonNullType, None, _) => true
-        case _                                                => false
-      }
-      .map(_.name)
-  val validatedRequiredArgs = requiredArgs.traverse(argName =>
-    args.find(_.name == argName) match
-      case None    => MissingArgument2(argName).invalidNec
-      case Some(_) => ().validNec
-  )
-
-  (
-    validatedValues,
-    validatedArgs,
-    validatedArgNames,
-    validatedRequiredArgs
-  ).mapN((_, _, _, _) => args)
+    (
+      validatedValues,
+      validatedArgs,
+      validatedArgNames,
+      validatedRequiredArgs
+    ).mapN((_, _, _, _) => args)
 end validateArguments
 
-/**
- *   - 5.7.1 Directive definitions should exist.
- *   - 5.7.2 Directive must be used in a valid location
- */
+/**   - 5.7.1 Directive definitions should exist.
+  *   - 5.7.2 Directive must be used in a valid location
+  */
 def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
-    schema: TypeSystemDocument
+    ctx: SchemaContext
 ): Validated[(Directive, DirectiveDefinition)] =
-  val validateDirDefExists = schema.findDirectiveDef(dir.name) match
-    case Some(dirDef) => dirDef.validNec
-    case None         => MissingDefinition(dir.name).invalidNec
+    val validateDirDefExists = ctx.directiveDef(dir.name) match
+        case Some(dirDef) => dirDef.validNec
+        case None         => MissingDefinition(dir.name).invalidNec
 
-  validateDirDefExists
-    .andThen(dirDef =>
-      val validatedArgs = validateArguments(dir.arguments, dirDef)
-      val validatedLocation =
-        if dirDef.directiveLocs.find(_ == currLoc).isDefined then dirDef.validNec
-        else InvalidLocation(dir.name).invalidNec
+    validateDirDefExists
+        .andThen(dirDef =>
+            val validatedArgs = validateArguments(dir.arguments, dirDef)
+            val validatedLocation =
+                if dirDef.directiveLocs.find(_ == currLoc).isDefined then dirDef.validNec
+                else InvalidLocation(dir.name).invalidNec
 
-      (
-        validatedArgs,
-        validatedLocation
-      ).mapN((_, _) => dir -> dirDef)
-    )
+            (
+              validatedArgs,
+              validatedLocation
+            ).mapN((_, _) => dir -> dirDef)
+        )
 end validateDirective
 
-/**
- *   - 5.7.1 Directive definitions should exist.
- *   - 5.7.2 Directive must be used in a valid location
- *   - 5.7.3
- */
+/**   - 5.7.1 Directive definitions should exist.
+  *   - 5.7.2 Directive must be used in a valid location
+  *   - 5.7.3
+  */
 def validateDirectives(dirs: List[Directive], currLoc: DirectiveLocation)(using
-    schema: TypeSystemDocument
+    ctx: SchemaContext
 ): Validated[List[Directive]] =
-  dirs
-    .map(validateDirective(_, currLoc).map(List(_)))
-    .reduceOption(_ combine _)
-    .getOrElse(Nil.validNec)
-    .andThen(dirsWithDef =>
-      dirsWithDef
-        .filterNot(_._2.repeatable)
-        .groupBy(_._1.name)
-        .toList
-        .map { case (_, occurences) =>
-          occurences(0)._1 -> occurences.length
-        }
-        .map {
-          case (dir, count) if count == 1 => List(dir).validNec
-          case (dir, count)               => DuplicateName(dir.name).invalidNec
-        }
+    dirs
+        .map(validateDirective(_, currLoc).map(List(_)))
         .reduceOption(_ combine _)
         .getOrElse(Nil.validNec)
-    )
+        .andThen(dirsWithDef =>
+            dirsWithDef
+                .filterNot(_._2.repeatable)
+                .groupBy(_._1.name)
+                .toList
+                .map { case (_, occurences) =>
+                    occurences(0)._1 -> occurences.length
+                }
+                .map {
+                    case (dir, count) if count == 1 => List(dir).validNec
+                    case (dir, count)               => DuplicateName(dir.name).invalidNec
+                }
+                .reduceOption(_ combine _)
+                .getOrElse(Nil.validNec)
+        )
 end validateDirectives
 
 // TODO:

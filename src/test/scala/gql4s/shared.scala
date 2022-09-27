@@ -5,8 +5,8 @@
 package gql4s
 
 import cats.data.NonEmptyList
-import parsing.*
 
+import parsing.*
 import parsing.Type.*
 import parsing.Value.*
 
@@ -81,7 +81,7 @@ val schemaStr = """
 """
 
 given schemaDoc: TypeSystemDocument = TypeSystemDocument(
-  definitions = NonEmptyList.of(
+  definitions = List(
     DirectiveDefinition(
       Name("myDir"),
       List(
@@ -93,7 +93,7 @@ given schemaDoc: TypeSystemDocument = TypeSystemDocument(
         )
       ),
       false,
-      NonEmptyList.one(ExecutableDirectiveLocation.FIELD)
+      List(ExecutableDirectiveLocation.FIELD)
     ),
     ObjectTypeDefinition(
       Name("Query"),
