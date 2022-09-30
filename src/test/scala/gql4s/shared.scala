@@ -80,7 +80,7 @@ val schemaStr = """
   }
 """
 
-given schemaDoc: TypeSystemDocument = TypeSystemDocument(
+val schemaDoc: TypeSystemDocument = TypeSystemDocument(
   definitions = List(
     DirectiveDefinition(
       Name("myDir"),

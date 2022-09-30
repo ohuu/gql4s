@@ -25,11 +25,10 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A                = ctx.ifTypeDef(Name("A")).get
+                val A                = ctx.getIfTypeDef(Name("A")).get
                 val validationResult = validateImplementation(A, A)
                 assert(validationResult.isValid)
             case _ => fail("failed to parse schemaStr")
@@ -52,13 +51,12 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val B = ctx.ifTypeDef(Name("B")).get
-                val C = ctx.ifTypeDef(Name("C")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val B = ctx.getIfTypeDef(Name("B")).get
+                val C = ctx.getIfTypeDef(Name("C")).get
 
                 val res1 = validateImplementation(B, A)
                 assert(res1.isValid)
@@ -90,13 +88,12 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val B = ctx.ifTypeDef(Name("B")).get
-                val C = ctx.ifTypeDef(Name("C")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val B = ctx.getIfTypeDef(Name("B")).get
+                val C = ctx.getIfTypeDef(Name("C")).get
 
                 val res1 = validateImplementation(B, A)
                 assert(res1.isValid)
@@ -140,14 +137,13 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val C = ctx.ifTypeDef(Name("C")).get
-                val X = ctx.ifTypeDef(Name("X")).get
-                val Y = ctx.objLikeTypeDef(Name("Y")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val C = ctx.getIfTypeDef(Name("C")).get
+                val X = ctx.getIfTypeDef(Name("X")).get
+                val Y = ctx.getObjLikeTypeDef(Name("Y")).get
 
                 val noErrs = validateImplementation(Y, X)
                 assert(noErrs.isValid)
@@ -185,15 +181,14 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val B = ctx.ifTypeDef(Name("B")).get
-                val C = ctx.ifTypeDef(Name("C")).get
-                val D = ctx.ifTypeDef(Name("D")).get
-                val E = ctx.ifTypeDef(Name("E")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val B = ctx.getIfTypeDef(Name("B")).get
+                val C = ctx.getIfTypeDef(Name("C")).get
+                val D = ctx.getIfTypeDef(Name("D")).get
+                val E = ctx.getIfTypeDef(Name("E")).get
 
                 val noErrs1 = validateImplementation(B, A)
                 assert(clue(noErrs1.isValid))
@@ -218,7 +213,7 @@ class SchemaValidatorSuite extends FunSuite:
     }
 
     test(
-      "The implementing type may define more arguments on any field as long as those arguments are not required"
+        "The implementing type may define more arguments on any field as long as those arguments are not required"
     ) {
         val schemaStr = """
         interface A {
@@ -236,13 +231,12 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val B = ctx.ifTypeDef(Name("B")).get
-                val C = ctx.ifTypeDef(Name("C")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val B = ctx.getIfTypeDef(Name("B")).get
+                val C = ctx.getIfTypeDef(Name("C")).get
 
                 val noErrs = validateImplementation(B, A)
                 assert(noErrs.isValid)
@@ -251,8 +245,8 @@ class SchemaValidatorSuite extends FunSuite:
                     case Invalid(errs) =>
                         val actualErrs = errs.toNonEmptyList
                         val expectedErrs = NonEmptyList.of(
-                          InvalidType(NonNullType(NamedType(Name("String")))),
-                          InvalidType(NonNullType(NamedType(Name("Boolean"))))
+                            InvalidType(NonNullType(NamedType(Name("String")))),
+                            InvalidType(NonNullType(NamedType(Name("Boolean"))))
                         )
                         assertEquals(clue(actualErrs), expectedErrs)
                     case Valid(_) => fail("Expected to fail")
@@ -260,7 +254,7 @@ class SchemaValidatorSuite extends FunSuite:
     }
 
     test(
-      "Fields that return nullable types may be implemented by fields that return non-nullable types"
+        "Fields that return nullable types may be implemented by fields that return non-nullable types"
     ) {
         val schemaStr = """
         interface A {
@@ -272,12 +266,11 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.ifTypeDef(Name("A")).get
-                val B = ctx.ifTypeDef(Name("B")).get
+                val A = ctx.getIfTypeDef(Name("A")).get
+                val B = ctx.getIfTypeDef(Name("B")).get
 
                 val noErrs = validateImplementation(B, A)
                 assert(noErrs.isValid)
@@ -291,11 +284,10 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.objTypeDef(Name("A")).get
+                val A = ctx.getObjTypeDef(Name("A")).get
 
                 validateObjLike(A) match
                     case Invalid(errs) =>
@@ -319,12 +311,11 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.objTypeDef(Name("A")).get
-                val B = ctx.objTypeDef(Name("B")).get
+                val A = ctx.getObjTypeDef(Name("A")).get
+                val B = ctx.getObjTypeDef(Name("B")).get
 
                 val noErrs = validateObjLike(A)
                 assert(noErrs.isValid)
@@ -346,11 +337,10 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.objTypeDef(Name("A")).get
+                val A = ctx.getObjTypeDef(Name("A")).get
 
                 validateObjLike(A) match
                     case Invalid(errs) =>
@@ -372,11 +362,10 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val A = ctx.objTypeDef(Name("A")).get
+                val A = ctx.getObjTypeDef(Name("A")).get
                 validateObjLike(A) match
                     case Invalid(errs) =>
                         val actualErr   = errs.head
@@ -397,11 +386,10 @@ class SchemaValidatorSuite extends FunSuite:
         """
         typeSystemDocument.parse(schemaStr) match
             case Right((_, schema)) =>
-                val ctx = SchemaContext(schema)
-
+                val ctx             = SchemaContext(schema)
                 given SchemaContext = ctx
 
-                val B = ctx.objTypeDef(Name("B")).get
+                val B = ctx.getObjTypeDef(Name("B")).get
                 validateObjLike(B) match
                     case Invalid(errs) =>
                         val actualErr   = errs.head
@@ -411,279 +399,301 @@ class SchemaValidatorSuite extends FunSuite:
             case _ => fail("failed to parse schemaStr")
     }
 
-// test("Object field arguments must not start with `__`") {
-//   val schemaStr = """
-//     type A {
-//       a(__x: Int): Int
-//     }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val A = schema.findTypeDef[ObjectTypeDefinition](Name("A")).get
-//       validateObjLike(A) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = InvalidName(Name("__x"))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+    test("Object field arguments must not start with `__`") {
+        val schemaStr = """
+            type A {
+                a(__x: Int): Int
+            }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-// test("Object field arguments must be an input type") {
-//   val schemaStr = """
-//     type Obj {
-//       o: Int
-//     }
-//     type A {
-//       a(x: Obj): Int
-//     }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val A = schema.findTypeDef[ObjectTypeDefinition](Name("A")).get
-//       validateObjLike(A) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = InvalidType(NamedType(Name("Obj")))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+                val A = ctx.getObjTypeDef(Name("A")).get
+                validateObjLike(A) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = InvalidName(Name("__x"))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-// test("An interface must not implement itself") {
-//   val schemaStr = """
-//   interface A implements A {
-//     a: Int!
-//   }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val A = schema.findTypeDef[InterfaceTypeDefinition](Name("A")).get
-//       validateObjLike(A) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = SelfImplementation(NamedType(Name("A")))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+    test("Object field arguments must be an input type") {
+        val schemaStr = """
+        type Obj {
+            o: Int
+        }
+        type A {
+            a(x: Obj): Int
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-// test("A union must include one or more unique member types") {
-//   val schemaStr = """
-//   type A {
-//     a: Int!
-//   }
-//   type B {
-//     b: String
-//   }
-//   union C = A | B
-//   union D = A | A
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val C = schema.findTypeDef[UnionTypeDefinition](Name("C")).get
-//       val D = schema.findTypeDef[UnionTypeDefinition](Name("D")).get
+                val A = ctx.getObjTypeDef(Name("A")).get
+                validateObjLike(A) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = InvalidType(NamedType(Name("Obj")))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-//       val noErrs = validateUnion(C)
-//       assert(noErrs.isValid)
+    test("An interface must not implement itself") {
+        val schemaStr = """
+        interface A implements A {
+            a: Int!
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-//       validateUnion(D) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = DuplicateName(Name("A"))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+                val A = ctx.getIfTypeDef(Name("A")).get
+                validateObjLike(A) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = SelfImplementation(NamedType(Name("A")))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-// test("Enums must include one or more unique values") {
-//   val schemaStr = """
-//   enum Planets {
-//     MARS
-//     MARS
-//   }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val planets = schema.findTypeDef[EnumTypeDefinition](Name("Planets")).get
-//       validateEnum(planets) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = DuplicateName(Name("MARS"))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+    test("A union must include one or more unique member types") {
+        val schemaStr = """
+        type A {
+            a: Int!
+        }
+        type B {
+            b: String
+        }
+        union C = A | B
+        union D = A | A
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-// test("Input objects must contain one or more fields") {
-//   val schemaStr = """
-//   input A {}
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right(_ -> schema) => fail("Should not have parsed.")
-//     case Left(_)            => assert(true)
-// }
+                val C = ctx.getUnionTypeDef(Name("C")).get
+                val D = ctx.getUnionTypeDef(Name("D")).get
 
-// test("Input object fields must have valid name") {
-//   val schemaStr = """
-//   input A {
-//     __a: Int
-//   }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val A = schema.findTypeDef[InputObjectTypeDefinition](Name("A")).get
-//       validateInputObj(A) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = InvalidName(Name("__a"))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+                val noErrs = validateUnionTypeDef(C)
+                assert(noErrs.isValid)
 
-// test("Input object fields must be a valid input field type") {
-//   val schemaStr = """
-//   type Obj {
-//     a: String
-//   }
-//   input InObj {
-//     a: Int
-//   }
-//   input A {
-//     a: InObj
-//   }
-//   input B {
-//     b: Obj
-//   }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right((_, schema @ given TypeSystemDocument)) =>
-//       val A = schema.findTypeDef[InputObjectTypeDefinition](Name("A")).get
-//       val B = schema.findTypeDef[InputObjectTypeDefinition](Name("B")).get
+                validateUnionTypeDef(D) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = DuplicateName(Name("A"))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-//       val noErrs = validateInputObj(A)
-//       assert(noErrs.isValid)
+    test("Enums must include one or more unique values") {
+        val schemaStr = """
+        enum Planets {
+            MARS
+            MARS
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-//       validateInputObj(B) match
-//         case Invalid(errs) =>
-//           val actualErr   = errs.head
-//           val expectedErr = InvalidType(NamedType(Name("Obj")))
-//           assertEquals(clue(actualErr), expectedErr)
-//         case Valid(_) => fail("Expected to fail")
-//     case _ => fail("failed to parse schemaStr")
-// }
+                val planets = ctx.getEnumTypeDef(Name("Planets")).get
+                validateEnumTypeDef(planets) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = DuplicateName(Name("MARS"))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-// test("Input objects must not contain themselves either directly or indirectly") {
-//   val schemaStr = """
-//   input A {
-//     e: E!
-//   }
-//   input B {
-//     i: Int
-//   }
-//   input C {
-//     b: B
-//   }
-//   input D {
-//     d: D!
-//   }
-//   input E {
-//     a: A!
-//   }
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right(_ -> schema) =>
-//       val errs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
-//       val actual = errs.filter(_.isInstanceOf[CycleDetected])
-//       val expected = List(
-//         CycleDetected(Name("A")),
-//         CycleDetected(Name("D")),
-//         CycleDetected(Name("E"))
-//       )
-//       assertEquals(clue(actual), clue(expected))
-//     case _ => fail("failed to parse schemaStr")
-// }
+    test("Input objects must contain one or more fields") {
+        val schemaStr = """
+        input A {}
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right(_ -> schema) => fail("Should not have parsed.")
+            case Left(_)            => assert(true)
+    }
 
-// test("directives must have a definition") {
-//   val doc1 = """
-//   type A {
-//     a: Int!
-//   }
-//   type B {
-//     b: String
-//   }
-//   union C @mydir = A | B
-//   """
-//   typeSystemDocument.parse(doc1) match
-//     case Right(_ -> schema) =>
-//       val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
-//       val expectedErrs = List(MissingDefinition(Name("mydir")))
-//       assertEquals(clue(actualErrs), expectedErrs)
-//     case _ => fail("failed to parse doc1")
-// }
+    test("Input object fields must have valid name") {
+        val schemaStr = """
+        input A {
+            __a: Int
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-// test("directives must be unique per location") {
-//   val doc1 = """
-//   directive @mydir on ENUM
+                val A = ctx.getInObjTypeDef(Name("A")).get
+                validateInputObjTypeDef(A) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = InvalidName(Name("__a"))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-//   enum Planets @mydir @mydir {
-//     MARS
-//     EARTH
-//   }
-//   """
-//   typeSystemDocument.parse(doc1) match
-//     case Right(_ -> schema) =>
-//       val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
-//       val expectedErrs = List(DuplicateName(Name("mydir")))
-//       assertEquals(clue(actualErrs), expectedErrs)
-//     case _ => fail("failed to parse doc1")
-// }
+    test("Input object fields must be a valid input field type") {
+        val schemaStr = """
+        type Obj {
+            a: String
+        }
+        input InObj {
+            a: Int
+        }
+        input A {
+            a: InObj
+        }
+        input B {
+            b: Obj
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right((_, schema)) =>
+                val ctx             = SchemaContext(schema)
+                given SchemaContext = ctx
 
-// test("directives must be in the correct location") {
-//   val doc1 = """
-//   enum Planets @deprecated {
-//     MARS @deprecated
-//     EARTH
-//   }
-//   """
-//   typeSystemDocument.parse(doc1) match
-//     case Right(_ -> schema) =>
-//       val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
-//       val expectedErrs = List(InvalidLocation(Name("deprecated")))
-//       assertEquals(clue(actualErrs), expectedErrs)
-//     case _ => fail("failed to parse doc1")
-// }
+                val A = ctx.getInObjTypeDef(Name("A")).get
+                val B = ctx.getInObjTypeDef(Name("B")).get
 
-// test("directive definitions must not contain cycles") {
-//   val schemaStr = """
-//   type B {
-//     x: Int @dirB(b: { x: 42 })
-//   }
+                val noErrs = validateInputObjTypeDef(A)
+                assert(noErrs.isValid)
 
-//   directive @dirA(a: Int @dirA(a: 42)) on ARGUMENT_DEFINITION
-//   directive @dirB(b: B) on FIELD_DEFINITION
-//   directive @dirC(b: B) on FIELD_DEFINITION
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right(_ -> schema) =>
-//       val actualErrs =
-//         validate(schema).swap.map(_.toList).getOrElse(Nil).collect { case o: CycleDetected => o }
-//       val expectedErrs =
-//         List[CycleDetected](CycleDetected(Name("dirA")), CycleDetected(Name("dirB")))
-//       assertEquals(clue(actualErrs), expectedErrs)
-//     case Left(err) => fail(s"failed to parse schemaStr\n${err}")
-// }
+                validateInputObjTypeDef(B) match
+                    case Invalid(errs) =>
+                        val actualErr   = errs.head
+                        val expectedErr = InvalidType(NamedType(Name("Obj")))
+                        assertEquals(clue(actualErr), expectedErr)
+                    case Valid(_) => fail("Expected to fail")
+            case _ => fail("failed to parse schemaStr")
+    }
 
-// test("directive names must not begin with __") {
-//   val schemaStr = """
-//   directive @__dirA on ARGUMENT_DEFINITION
-//   """
-//   typeSystemDocument.parse(schemaStr) match
-//     case Right(_ -> schema) =>
-//       val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
-//       val expectedErrs = List[GqlError](InvalidName(Name("__dirA")))
-//       assertEquals(clue(actualErrs), expectedErrs)
-//     case Left(err) => fail(s"failed to parse schemaStr\n${err}")
-// }
+    test("Input objects must not contain themselves either directly or indirectly") {
+        val schemaStr = """
+        input A {
+            e: E!
+        }
+        input B {
+            i: Int
+        }
+        input C {
+            b: B
+        }
+        input D {
+            d: D!
+        }
+        input E {
+            a: A!
+        }
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right(_ -> schema) =>
+                val errs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+                val actual = errs.filter(_.isInstanceOf[CyclesDetected]).head
+                val expected = CyclesDetected(
+                    List(
+                        Name("A"),
+                        Name("D"),
+                        Name("E")
+                    )
+                )
+                assertEquals(clue(actual), clue(expected))
+            case _ => fail("failed to parse schemaStr")
+    }
+
+    test("directives must have a definition") {
+        val doc1 = """
+        type A {
+            a: Int!
+        }
+        type B {
+            b: String
+        }
+        union C @mydir = A | B
+        """
+        typeSystemDocument.parse(doc1) match
+            case Right(_ -> schema) =>
+                val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+                val expectedErrs = List(MissingDefinition(Name("mydir")))
+                assertEquals(clue(actualErrs), expectedErrs)
+            case _ => fail("failed to parse doc1")
+    }
+
+    test("directives must be unique per location") {
+        val doc1 = """
+        directive @mydir on ENUM
+
+        enum Planets @mydir @mydir {
+            MARS
+            EARTH
+        }
+        """
+        typeSystemDocument.parse(doc1) match
+            case Right(_ -> schema) =>
+                val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+                val expectedErrs = List(DuplicateName(Name("mydir")))
+                assertEquals(clue(actualErrs), expectedErrs)
+            case _ => fail("failed to parse doc1")
+    }
+
+    test("directives must be in the correct location") {
+        val doc1 = """
+        enum Planets @deprecated {
+            MARS @deprecated
+            EARTH
+        }
+        """
+        typeSystemDocument.parse(doc1) match
+            case Right(_ -> schema) =>
+                val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+                val expectedErrs = List(InvalidLocation(Name("deprecated")))
+                assertEquals(clue(actualErrs), expectedErrs)
+            case _ => fail("failed to parse doc1")
+    }
+
+    test("directive definitions must not contain cycles") {
+        val schemaStr = """
+        type B {
+            x: Int @dirB(b: { x: 42 })
+        }
+
+        directive @dirA(a: Int @dirA(a: 42)) on ARGUMENT_DEFINITION
+        directive @dirB(b: B) on FIELD_DEFINITION
+        directive @dirC(b: B) on FIELD_DEFINITION
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right(_ -> schema) =>
+                val actualErrs =
+                    validate(schema).swap.map(_.toList).getOrElse(Nil).collect { case o: CyclesDetected => o }.head
+                val expectedErrs: CyclesDetected = CyclesDetected(List(Name("dirA"), Name("dirB")))
+                assertEquals(clue(actualErrs), clue(expectedErrs))
+            case Left(err) => fail(s"failed to parse schemaStr\n${err}")
+    }
+
+    test("directive names must not begin with __") {
+        val schemaStr = """
+        directive @__dirA on ARGUMENT_DEFINITION
+        """
+        typeSystemDocument.parse(schemaStr) match
+            case Right(_ -> schema) =>
+                val actualErrs   = validate(schema).swap.map(_.toList).getOrElse(Nil)
+                val expectedErrs = List[GqlError](InvalidName(Name("__dirA")))
+                assertEquals(clue(actualErrs), expectedErrs)
+            case Left(err) => fail(s"failed to parse schemaStr\n${err}")
+    }
 end SchemaValidatorSuite

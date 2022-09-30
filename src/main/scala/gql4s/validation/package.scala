@@ -27,7 +27,7 @@ def isLeafType(name: Name): Boolean = name.text match
     case "Int" | "Float" | "String" | "Boolean" | "ID" => true
     case _                                             => false
 
-def isObjectType(name: Name)(using ctx: SchemaContext): Boolean = ctx.typeDef(name) match
+def isObjectType(name: Name)(using ctx: SchemaContext): Boolean = ctx.getTypeDef(name) match
     case Some(_: ObjectTypeDefinition) => true
     case _                             => false
 
@@ -35,7 +35,7 @@ def isInputType(`type`: Type)(using ctx: SchemaContext): Boolean = `type` match
     case NonNullType(tpe) => isInputType(tpe)
     case ListType(tpe)    => isInputType(tpe)
     case NamedType(name) =>
-        ctx.typeDef(name) match
+        ctx.getTypeDef(name) match
             case Some(_: ScalarTypeDefinition)      => true
             case Some(_: EnumTypeDefinition)        => true
             case Some(_: InputObjectTypeDefinition) => true
@@ -45,7 +45,7 @@ def isOutputType(`type`: Type)(using ctx: SchemaContext): Boolean = `type` match
     case NonNullType(tpe) => isOutputType(tpe)
     case ListType(tpe)    => isOutputType(tpe)
     case NamedType(name) =>
-        ctx.typeDef(name) match
+        ctx.getTypeDef(name) match
             case Some(_: ScalarTypeDefinition)    => true
             case Some(_: ObjectTypeDefinition)    => true
             case Some(_: InterfaceTypeDefinition) => true
@@ -77,8 +77,8 @@ def validateCovariant(a: Type, b: Type)(using ctx: SchemaContext): Validated[Typ
             case (ListType(a), ListType(b))       => validate(a, b)
             case (ListType(a), b)                 => false
             case (a: NamedType, b: NamedType) =>
-                val aTypeDef = ctx.typeDef(a.name)
-                val bTypeDef = ctx.typeDef(b.name)
+                val aTypeDef = ctx.getTypeDef(a.name)
+                val bTypeDef = ctx.getTypeDef(b.name)
 
                 (aTypeDef, bTypeDef) match
                     case (Some(a), Some(b)) if a.name == b.name => true
@@ -129,27 +129,27 @@ def validateInputObjectValue(
                     case None =>
                         val parentType: NamedType = NamedType(inObjTypeDef.name)
                         val validations = (
-                          MissingField2(name, parentType).invalidNec,
-                          validateUniqueName(value.fields) // 5.6.3 input object field duplicates
+                            MissingField2(name, parentType).invalidNec,
+                            validateUniqueName(value.fields) // 5.6.3 input object field duplicates
                         ).mapN((_, _) => List(inObjVal))
 
                         recurse(tail, validations combine acc)
 
                     case Some(inValDef) =>
-                        ctx.typeDef(inValDef.`type`.name) match
+                        ctx.getTypeDef(inValDef.`type`.name) match
                             case Some(inObjTypeDef: InputObjectTypeDefinition) =>
                                 val validations = (
-                                  validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
-                                  validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
+                                    validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
+                                    validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
                                 ).mapN((_, _) => List(inObjVal))
 
                                 recurse(value.fields.map(_ -> inObjTypeDef) ::: tail, validations combine acc)
 
                             case _ =>
                                 val validations = (
-                                  MissingDefinition(inValDef.`type`.name).invalidNec,
-                                  validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
-                                  validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
+                                    MissingDefinition(inValDef.`type`.name).invalidNec,
+                                    validateUniqueName(value.fields),           // 5.6.3 input object field duplicates
+                                    validateRequiredFields(value, inObjTypeDef) // 5.6.4 input objects required fields
                                 ).mapN((_, _, _) => List(inObjVal))
 
                                 recurse(tail, validations combine acc)
@@ -163,65 +163,65 @@ def validateInputObjectValue(
                     case Some(_) => recurse(tail, acc)
     end recurse
 
-    ctx.typeDef(inValDef.`type`.name) match
+    ctx.getTypeDef(inValDef.`type`.name) match
         case Some(inObjTypeDef: InputObjectTypeDefinition) =>
             val validations = (
-              validateUniqueName(inObjVal.fields),           // 5.6.3 input object field duplicates
-              validateRequiredFields(inObjVal, inObjTypeDef) // 5.6.4 input objects required fields
+                validateUniqueName(inObjVal.fields),           // 5.6.3 input object field duplicates
+                validateRequiredFields(inObjVal, inObjTypeDef) // 5.6.4 input objects required fields
             ).mapN((_, _) => List(inObjVal))
 
             recurse(inObjVal.fields.map(_ -> inObjTypeDef), validations)
 
         case _ =>
             (
-              MissingDefinition(inValDef.`type`.name).invalidNec,
-              validateUniqueName(inObjVal.fields) // 5.6.3 input object field duplicates
+                MissingDefinition(inValDef.`type`.name).invalidNec,
+                validateUniqueName(inObjVal.fields) // 5.6.3 input object field duplicates
             ).mapN((_, _) => List(inObjVal))
 end validateInputObjectValue
 
-def validateValue(value: Value, typeDef: TypeDefinition): Validated[Value] =
-    typeDef match
-        case ScalarTypeDefinition(Name("Int"), _) =>
-            value match
-                case v @ IntValue(value) =>
-                    Try(value.toInt) match
-                        case Success(_) => v.valid
-                        case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
-                case v @ Variable(name) => ???
-                case v                  => TypeMismatch2(v, Name("Int")).invalidNec
-        case ScalarTypeDefinition(Name("Float"), _) =>
-            value match
-                case v @ FloatValue(value) =>
-                    Try(value.toFloat) match
-                        case Success(_) => v.valid
-                        case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
-                case v => TypeMismatch2(v, Name("Float")).invalidNec
-        case ScalarTypeDefinition(Name("String"), _) =>
-            value match
-                case v @ StringValue(_) => v.valid
-                case v                  => TypeMismatch2(v, Name("String")).invalidNec
-        case ScalarTypeDefinition(Name("Boolean"), _) =>
-            value match
-                case v @ BooleanValue(value) =>
-                    Try(value.toBoolean) match
-                        case Success(_) => v.valid
-                        case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
-                case v => TypeMismatch2(v, Name("Boolean")).invalidNec
-        case ScalarTypeDefinition(Name("ID"), _) =>
-            value match
-                case v @ StringValue(value) => v.valid
-                case v @ IntValue(value) =>
-                    Try(value.toInt) match
-                        case Success(_) => v.valid
-                        case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
-                case v => TypeMismatch2(v, Name("ID")).invalidNec
-        case x: ScalarTypeDefinition      => ???
-        case x: ObjectTypeDefinition      => ???
-        case x: InterfaceTypeDefinition   => ???
-        case x: UnionTypeDefinition       => ???
-        case x: EnumTypeDefinition        => ???
-        case x: InputObjectTypeDefinition => ???
-end validateValue
+// def validateValue(value: Value, typeDef: TypeDefinition): Validated[Value] =
+//     typeDef match
+//         case ScalarTypeDefinition(Name("Int"), _) =>
+//             value match
+//                 case v @ IntValue(value) =>
+//                     Try(value.toInt) match
+//                         case Success(_) => v.valid
+//                         case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
+//                 case v @ Variable(name) => ???
+//                 case v                  => TypeMismatch2(v, Name("Int")).invalidNec
+//         case ScalarTypeDefinition(Name("Float"), _) =>
+//             value match
+//                 case v @ FloatValue(value) =>
+//                     Try(value.toFloat) match
+//                         case Success(_) => v.valid
+//                         case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
+//                 case v => TypeMismatch2(v, Name("Float")).invalidNec
+//         case ScalarTypeDefinition(Name("String"), _) =>
+//             value match
+//                 case v @ StringValue(_) => v.valid
+//                 case v                  => TypeMismatch2(v, Name("String")).invalidNec
+//         case ScalarTypeDefinition(Name("Boolean"), _) =>
+//             value match
+//                 case v @ BooleanValue(value) =>
+//                     Try(value.toBoolean) match
+//                         case Success(_) => v.valid
+//                         case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
+//                 case v => TypeMismatch2(v, Name("Boolean")).invalidNec
+//         case ScalarTypeDefinition(Name("ID"), _) =>
+//             value match
+//                 case v @ StringValue(value) => v.valid
+//                 case v @ IntValue(value) =>
+//                     Try(value.toInt) match
+//                         case Success(_) => v.valid
+//                         case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
+//                 case v => TypeMismatch2(v, Name("ID")).invalidNec
+//         case x: ScalarTypeDefinition      => ???
+//         case x: ObjectTypeDefinition      => ???
+//         case x: InterfaceTypeDefinition   => ???
+//         case x: UnionTypeDefinition       => ???
+//         case x: EnumTypeDefinition        => ???
+//         case x: InputObjectTypeDefinition => ???
+// end validateValue
 
 /** Validate a fields arguments
   * @param args
@@ -234,18 +234,21 @@ end validateValue
 def validateArguments(args: List[Argument], `def`: FieldDefinition | DirectiveDefinition)(using
     ctx: SchemaContext
 ): Validated[List[Argument]] =
-    val validatedValues =
-        args.traverse(arg =>
-            val validatedArgDef = `def`.arguments.find(_.name == arg.name) match
-                case Some(argDef) => argDef.valid
-                case None         => MissingDefinition(arg.name).invalidNec
+    // val validatedValues =
+    //     args.traverse(arg =>
+    //         val validatedArgDef = `def`.arguments.find(_.name == arg.name) match
+    //             case Some(argDef) => argDef.valid
+    //             case None =>
+    //                 println("[[[[[[[[[[[ MISSING ]]]]]]]]]]")
+    //                 MissingDefinition(arg.name).invalidNec
 
-            validatedArgDef.andThen(argDef =>
-                ctx.typeDef(argDef.`type`.name) match
-                    case Some(typeDef) => validateValue(arg.value, typeDef)
-                    case None          => MissingDefinition(argDef.`type`.name).invalidNec
-            )
-        )
+    //         validatedArgDef
+    //         // .andThen(argDef =>
+    //         //     ctx.typeDef(argDef.`type`.name) match
+    //         //         case Some(typeDef) => validateValue(arg.value, typeDef)
+    //         //         case None          => MissingDefinition(argDef.`type`.name).invalidNec
+    //         // )
+    //     )
 
     val validatedArgs =
         args.map {
@@ -254,21 +257,23 @@ def validateArguments(args: List[Argument], `def`: FieldDefinition | DirectiveDe
                 `def`.arguments.find(_.name == name) match
                     case None =>
                         MissingDefinition(
-                          name,
-                          Some(s"in definition ${`def`.name}")
+                            name,
+                            Some(s"in definition ${`def`.name}")
                         ).invalidNec
                     case Some(inValDef) =>
-                        validateInputObjectValue(objVal, inValDef).map(_ => ())
+                        validateInputObjectValue(objVal, inValDef).map(_ =>
+                            ()
+                        ) // TODO: Do I need to validate value here?
 
             case Argument(name, _) =>
                 // 5.4.1 args exist
                 `def`.arguments.find(_.name == name) match
                     case None =>
                         MissingDefinition(
-                          name,
-                          Some(s"in definition ${`def`.name}")
+                            name,
+                            Some(s"in definition ${`def`.name}")
                         ).invalidNec
-                    case _ => ().validNec
+                    case _ => ().validNec // TODO: Do I need to validate value here?
         }.combineAll
 
     // 5.4.2 args are unique
@@ -289,11 +294,11 @@ def validateArguments(args: List[Argument], `def`: FieldDefinition | DirectiveDe
     )
 
     (
-      validatedValues,
-      validatedArgs,
-      validatedArgNames,
-      validatedRequiredArgs
-    ).mapN((_, _, _, _) => args)
+        //   validatedValues,
+        validatedArgs,
+        validatedArgNames,
+        validatedRequiredArgs
+    ).mapN((_, _, _) => args)
 end validateArguments
 
 /**   - 5.7.1 Directive definitions should exist.
@@ -302,7 +307,7 @@ end validateArguments
 def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
     ctx: SchemaContext
 ): Validated[(Directive, DirectiveDefinition)] =
-    val validateDirDefExists = ctx.directiveDef(dir.name) match
+    val validateDirDefExists = ctx.getDirectiveDef(dir.name) match
         case Some(dirDef) => dirDef.validNec
         case None         => MissingDefinition(dir.name).invalidNec
 
@@ -314,8 +319,8 @@ def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
                 else InvalidLocation(dir.name).invalidNec
 
             (
-              validatedArgs,
-              validatedLocation
+                validatedArgs,
+                validatedLocation
             ).mapN((_, _) => dir -> dirDef)
         )
 end validateDirective

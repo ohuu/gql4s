@@ -35,154 +35,54 @@ sealed trait HasDirectives:
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Definitions & Documents
-case class ExecutableDocument(definitions: List[ExecutableDefinition]):
-// def findExecDef[T <: ExecutableDefinition](using TypeTest[Any, T]) =
-//     definitions.collect { case t: T => t }
-
-// def findFragDef(fragName: Name): Option[FragmentDefinition] =
-//     definitions.collect { case f: FragmentDefinition => f }.find(_.name == fragName)
-
-// def getDef[T](using TypeTest[Any, T]): List[T] = definitions.collect { case t: T => t }
-
-// /** Finds unique uses of fragment spreads.
-//   *
-//   * @return
-//   *   A list of fragment spreads which are used in the given document. No duplicates will exist in the list.
-//   */
-// def findFragSpreads(): List[FragmentSpread] =
-//     @tailrec
-//     def recurse(accSelectionSet: List[Selection], acc: List[FragmentSpread]): List[FragmentSpread] =
-//         accSelectionSet match
-//             case Nil => acc
-//             case head :: tail =>
-//                 head match
-//                     case Field(_, _, _, _, selectionSet)    => recurse(selectionSet ::: tail, acc)
-//                     case InlineFragment(_, _, selectionSet) => recurse(selectionSet.toList ::: tail, acc)
-//                     case spread: FragmentSpread =>
-//                         val acc2 = if acc.contains(spread) then acc else spread :: acc
-//                         recurse(tail, acc2)
-//     end recurse
-
-//     definitions
-//         .collect { case o: OperationDefinition => o }
-//         .map(_.selectionSet.toList)
-//         .flatMap(recurse(_, Nil))
-// end findFragSpreads
-end ExecutableDocument
+case class ExecutableDocument(definitions: List[ExecutableDefinition])
 
 case class TypeSystemDocument(definitions: List[TypeSystemDefinition]):
     val builtInScalarDefs = List(
-      ScalarTypeDefinition(Name("Int"), Nil),
-      ScalarTypeDefinition(Name("Float"), Nil),
-      ScalarTypeDefinition(Name("String"), Nil),
-      ScalarTypeDefinition(Name("Boolean"), Nil),
-      ScalarTypeDefinition(Name("ID"), Nil)
+        ScalarTypeDefinition(Name("Int"), Nil),
+        ScalarTypeDefinition(Name("Float"), Nil),
+        ScalarTypeDefinition(Name("String"), Nil),
+        ScalarTypeDefinition(Name("Boolean"), Nil),
+        ScalarTypeDefinition(Name("ID"), Nil)
     )
 
     val builtInDirectiveDefs = List(
-      DirectiveDefinition(
-        Name("skip"),
-        List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
-        false,
-        List(
-          ExecutableDirectiveLocation.FIELD,
-          ExecutableDirectiveLocation.FRAGMENT_SPREAD,
-          ExecutableDirectiveLocation.INLINE_FRAGMENT
+        DirectiveDefinition(
+            Name("skip"),
+            List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+            false,
+            List(
+                ExecutableDirectiveLocation.FIELD,
+                ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+                ExecutableDirectiveLocation.INLINE_FRAGMENT
+            )
+        ),
+        DirectiveDefinition(
+            Name("include"),
+            List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+            false,
+            List(
+                ExecutableDirectiveLocation.FIELD,
+                ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+                ExecutableDirectiveLocation.INLINE_FRAGMENT
+            )
+        ),
+        DirectiveDefinition(
+            Name("deprecated"),
+            List(InputValueDefinition(Name("reason"), NamedType(Name("String")), None, Nil)),
+            false,
+            List(
+                TypeSystemDirectiveLocation.FIELD_DEFINITION,
+                TypeSystemDirectiveLocation.ENUM_VALUE
+            )
+        ),
+        DirectiveDefinition(
+            Name("specifiedBy"),
+            List(InputValueDefinition(Name("url"), NonNullType(NamedType(Name("String"))), None, Nil)),
+            false,
+            List(TypeSystemDirectiveLocation.SCALAR)
         )
-      ),
-      DirectiveDefinition(
-        Name("include"),
-        List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
-        false,
-        List(
-          ExecutableDirectiveLocation.FIELD,
-          ExecutableDirectiveLocation.FRAGMENT_SPREAD,
-          ExecutableDirectiveLocation.INLINE_FRAGMENT
-        )
-      ),
-      DirectiveDefinition(
-        Name("deprecated"),
-        List(InputValueDefinition(Name("reason"), NamedType(Name("String")), None, Nil)),
-        false,
-        List(
-          TypeSystemDirectiveLocation.FIELD_DEFINITION,
-          TypeSystemDirectiveLocation.ENUM_VALUE
-        )
-      ),
-      DirectiveDefinition(
-        Name("specifiedBy"),
-        List(InputValueDefinition(Name("url"), NonNullType(NamedType(Name("String"))), None, Nil)),
-        false,
-        List(TypeSystemDirectiveLocation.SCALAR)
-      )
     )
-
-    // def findTypeDef[T <: TypeDefinition](name: Name)(using TypeTest[Any, T]): Option[T] =
-    //     (definitions ++ builtInScalarDefs).collect { case t: T => t }.find(_.name == name)
-
-    // def getTypeDef[T](using TypeTest[Any, T]): List[T] =
-    //     (definitions ++ builtInScalarDefs).collect { case t: T => t }
-
-    // /** Checks whether the given field exists within the given type.
-    //   *
-    //   * @param fieldName
-    //   *   The field we're looking for.
-    //   * @param namedType
-    //   *   The name of the type to search in.
-    //   * @param schema
-    //   *   The graphql schema.
-    //   * @return
-    //   *   Some MissingField error if the field cannot be found, None if it can.
-    //   */
-    // def findFieldDef(fieldName: Name, namedType: NamedType): Option[FieldDefinition] =
-    //     @tailrec
-    //     def recurse(namedTypes: List[NamedType]): Option[FieldDefinition] =
-    //         namedTypes match
-    //             case Nil => None
-    //             case namedType :: tail =>
-    //                 val typeDef = findTypeDef[TypeDefinition](namedType.name)
-
-    //                 typeDef match
-    //                     case Some(ObjectTypeDefinition(_, interfaces, _, fields)) =>
-    //                         val fieldDef = fields.find(_.name == fieldName)
-    //                         if fieldDef.isDefined then fieldDef
-    //                         else recurse(interfaces ::: tail)
-
-    //                     case Some(InterfaceTypeDefinition(_, interfaces, _, fields)) =>
-    //                         val fieldDef = fields.find(_.name == fieldName)
-    //                         if fieldDef.isDefined then fieldDef
-    //                         else recurse(interfaces ::: tail)
-
-    //                     case Some(UnionTypeDefinition(_, _, members)) =>
-    //                         recurse(members ::: tail)
-
-    //                     // The type that we're checking exists but isn't a type with fields
-    //                     // therefore the field can't exist so we just return false
-    //                     case _ => None
-    //     end recurse
-
-    //     recurse(List(namedType))
-    // end findFieldDef
-
-    // def findOpTypeDef(opType: OperationType): Option[ObjectTypeDefinition] =
-    //     val schemaDef = definitions.collect { case s: SchemaDefinition => s }.headOption
-    //     schemaDef match
-    //         case Some(SchemaDefinition(_, roots)) =>
-    //             roots
-    //                 .find(_.operationType == opType)
-    //                 .map(_.namedType.name)
-    //                 .flatMap(findTypeDef[ObjectTypeDefinition])
-    //         case None =>
-    //             opType match
-    //                 case Query        => findTypeDef[ObjectTypeDefinition](Name("Query"))
-    //                 case Mutation     => findTypeDef[ObjectTypeDefinition](Name("Mutation"))
-    //                 case Subscription => findTypeDef[ObjectTypeDefinition](Name("Subscription"))
-    // end findOpTypeDef
-
-    // def findDirectiveDef(name: Name): Option[DirectiveDefinition] =
-    //     (definitions ++ builtInDirectiveDefs)
-    //         .collect { case t: DirectiveDefinition => t }
-    //         .find(_.name == name)
 end TypeSystemDocument
 
 sealed trait Definition

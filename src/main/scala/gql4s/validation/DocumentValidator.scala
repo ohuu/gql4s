@@ -9,7 +9,6 @@ import scala.annotation.tailrec
 import scala.collection.immutable.HashMap
 import scala.collection.mutable.LinkedHashMap
 
-import cats.data.NonEmptyList
 import cats.implicits.*
 
 import errors.*
@@ -22,126 +21,6 @@ import parsing.Value.*
 import validation.Topo.*
 
 object DocumentValidator:
-    // /** A table mapping definition names to the set of variables required to execute that definition.
-    //   */
-    // type FragDefReqsTable = Map[Name, Set[Variable]]
-
-    // ================================================================================================================
-    // Helper Functions
-    /** Builds a table of variables required to execute the given fragment definition */
-    // def findFragDefReqs(
-    //     fragDef: FragmentDefinition
-    //     // depReqs: FragDefReqsTable
-    // )(using doc: ExecutableDocument): FragDefReqsTable =
-    //     @tailrec
-    //     def recurse(
-    //         accSelectionSets: List[(Name, Selection)],
-    //         accReqs: FragDefReqsTable = Map.empty
-    //     ): FragDefReqsTable =
-    //         accSelectionSets match
-    //             case Nil => accReqs
-
-    //             case (fragDefName, selection) :: tail =>
-    //                 selection match
-    //                     case field: Field =>
-    //                         val vars = field.arguments.flatMap {
-    //                             case Argument(_, v: Variable) => Some(v)
-    //                             case _                        => None
-    //                         }.toSet
-    //                         val accSelectionSet = field.selectionSet.map(fragDefName -> _)
-    //                         val reqs            = fragDefName -> (vars union accReqs(fragDefName))
-    //                         recurse(accSelectionSet ::: tail, accReqs + reqs)
-
-    //                     case frag: InlineFragment =>
-    //                         val accSelectionSet = frag.selectionSet.toList.map(fragDefName -> _)
-    //                         recurse(accSelectionSet ::: tail, accReqs)
-
-    //                     case frag: FragmentSpread =>
-    //                         doc.findFragDef(frag.name) match
-    //                             case None =>
-    //                                 // Although fragment definition existence has been checked by this point we must
-    //                                 // still handle the condition where None is found because validation does not stop
-    //                                 // premeturely if some fragments are found to not exist.
-    //                                 recurse(tail, accReqs)
-
-    //                             case Some(fragDef) =>
-    //                                 val accSelectionSet = fragDef.selectionSet.toList.map(fragDefName -> _)
-    //                                 recurse(
-    //                                   accSelectionSet ::: tail,
-    //                                   accReqs + (fragDef.name -> Set.empty /*depReqs.getOrElse(fragDef.name, Set.empty)*/ )
-    //                                 )
-    //                 end match
-    //         end match
-    //     end recurse
-
-    //     val selectionSet           = fragDef.selectionSet.toList.map(fragDef.name -> _)
-    //     val reqs: FragDefReqsTable = Map(fragDef.name -> Set.empty)
-    //     recurse(selectionSet, reqs)
-    // end findFragDefReqs
-
-    // def findOpDefReqs(opDef: OperationDefinition, fragDefReqs: FragDefReqsTable): Set[Variable] =
-    //     def requiredVars(args: List[Argument]): Set[Variable] = args.flatMap {
-    //         case Argument(_, v: Variable) => Some(v)
-    //         case _                        => None
-    //     }.toSet
-
-    //     @tailrec
-    //     def recurse(
-    //         accSelectionSets: List[Selection],
-    //         accReqs: Set[Variable] = Set.empty
-    //     ): Set[Variable] =
-    //         accSelectionSets match
-    //             case Nil => accReqs
-
-    //             case (field: Field) :: tail =>
-    //                 val allArgs = field.directives.flatMap(_.arguments) ++ field.arguments
-    //                 val vars    = requiredVars(allArgs)
-    //                 recurse(field.selectionSet ::: tail, vars union accReqs)
-
-    //             case (frag: InlineFragment) :: tail =>
-    //                 val vars = requiredVars(frag.directives.flatMap(_.arguments))
-    //                 recurse(frag.selectionSet.toList ::: tail, vars union accReqs)
-
-    //             case (frag: FragmentSpread) :: tail =>
-    //                 val vars = requiredVars(frag.directives.flatMap(_.arguments))
-    //                 if fragDefReqs.contains(frag.name) then
-    //                     recurse(tail, vars union fragDefReqs(frag.name) union accReqs)
-    //                 else recurse(tail, vars union accReqs)
-
-    //         end match
-    //     end recurse
-
-    //     recurse(opDef.selectionSet.toList)
-    // end findOpDefReqs
-
-    // def buildFragDefDepGraph(
-    //     fragDefs: List[FragmentDefinition]
-    // ): DependencyGraph[FragmentDefinition] =
-    //     @tailrec
-    //     def recurse(accSelectionSet: List[Selection], accDeps: Set[Name] = Set.empty): Set[Name] =
-    //         accSelectionSet match
-    //             case Nil                            => accDeps
-    //             case (field: Field) :: tail         => recurse(field.selectionSet ::: tail, accDeps)
-    //             case (frag: InlineFragment) :: tail => recurse(frag.selectionSet.toList ::: tail, accDeps)
-    //             case (frag: FragmentSpread) :: tail => recurse(tail, accDeps + frag.name)
-    //         end match
-    //     end recurse
-
-    //     // A mapping from fragment defintion to its dependencies
-    //     if fragDefs.nonEmpty then
-    //         LinkedHashMap.from( // maintains insertion order 👍
-    //           fragDefs
-    //               .map(fragDef =>
-    //                   val deps = recurse(fragDef.selectionSet.toList)
-    //                   fragDef -> deps
-    //               )
-    //         )
-    //     else LinkedHashMap.empty
-    // end buildFragDefDepGraph
-
-    // ================================================================================================================
-    // Validators
-
     /**   - 5.2.3.1 Checks to see if the used fragment has a single root
       */
     // TODO: need to stop introspection fields in subscription's root
@@ -160,11 +39,11 @@ object DocumentValidator:
         // try to find a sub with multiple roots
         val multipleRoots = subs.find {
             case OperationDefinition(
-                  _,
-                  _,
-                  _,
-                  _,
-                  (f: (InlineFragment | FragmentSpread)) :: Nil
+                    _,
+                    _,
+                    _,
+                    _,
+                    (f: (InlineFragment | FragmentSpread)) :: Nil
                 ) =>
                 !hasSingleRoot(f, ctx.fragDefs)
             case OperationDefinition(_, _, _, _, selects) => selects.length > 1
@@ -185,7 +64,7 @@ object DocumentValidator:
     // TODO: This has the potential of being called multiple times for the same type. This can be
     //       optimised by checking for the existence (and usage) of types before the main "sweep".
     def validateObjectLikeTypeDefExists(namedType: NamedType)(using ctx: Context): Validated[NamedType] =
-        ctx.typeDef(namedType.name) match
+        ctx.getTypeDef(namedType.name) match
             case Some(_: ObjectTypeDefinition | _: InterfaceTypeDefinition | _: UnionTypeDefinition) =>
                 namedType.validNec
             case Some(_) => InvalidNamedType(namedType.name).invalidNec
@@ -219,7 +98,7 @@ object DocumentValidator:
                     selection match
                         case field @ Field(_, fieldName, arguments, dirs, selectionSet) =>
                             // 5.3.1 field selections must exist on object, interface and union types
-                            ctx.fieldDef(parentType)(fieldName) match
+                            ctx.getFieldDef(parentType)(fieldName) match
                                 case None =>
                                     val validatedField      = MissingField2(fieldName, parentType).invalidNec[Unit]
                                     val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
@@ -230,12 +109,12 @@ object DocumentValidator:
                                     val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
 
                                     val fieldType: NamedType = NamedType(fieldDef.`type`.name)
-                                    ctx.typeDef(fieldType.name) match
+                                    ctx.getTypeDef(fieldType.name) match
                                         case None =>
                                             val validatedDef = MissingTypeDefinition(fieldType).invalidNec
                                             recurse(
-                                              tail,
-                                              validatedArgs combine validatedDirectives combine validatedDef combine acc
+                                                tail,
+                                                validatedArgs combine validatedDirectives combine validatedDef combine acc
                                             )
 
                                         // We found it but it's a leaf type so we can't recurse into its children,
@@ -244,15 +123,15 @@ object DocumentValidator:
                                             // 5.3.3 leaf field selection validation
                                             if selectionSet.isEmpty then
                                                 recurse(
-                                                  tail,
-                                                  validatedArgs combine validatedDirectives combine acc
+                                                    tail,
+                                                    validatedArgs combine validatedDirectives combine acc
                                                 )
                                             else
                                                 val validatedSelection =
                                                     InvalidSelection(fieldName, parentType).invalidNec
                                                 recurse(
-                                                  tail,
-                                                  validatedArgs combine validatedDirectives combine validatedSelection combine acc
+                                                    tail,
+                                                    validatedArgs combine validatedDirectives combine validatedSelection combine acc
                                                 )
 
                                         // We found an object type so we need to recurse
@@ -265,8 +144,8 @@ object DocumentValidator:
                                             else
                                                 val typeAndSelection = selectionSet.map(NamedType(typeDef.name) -> _)
                                                 recurse(
-                                                  typeAndSelection ::: tail,
-                                                  validatedArgs combine validatedDirectives combine acc
+                                                    typeAndSelection ::: tail,
+                                                    validatedArgs combine validatedDirectives combine acc
                                                 )
                                     end match
 
@@ -281,14 +160,14 @@ object DocumentValidator:
                             val isSame = onType == parentType
                             val isImplementation =
                                 validateCovariant(parentType, onType).isValid || validateCovariant(
-                                  onType,
-                                  parentType
+                                    onType,
+                                    parentType
                                 ).isValid
                             if !(isSame || isImplementation) then InvalidFragment(onType.name).invalidNec
                             else
                                 recurse(
-                                  typeAndSelection ::: tail,
-                                  validatedTypeDef combine validatedDirectives combine acc
+                                    typeAndSelection ::: tail,
+                                    validatedTypeDef combine validatedDirectives combine acc
                                 )
 
                         // Type name has been omitted so this inline fragment has the same type as enclosing
@@ -303,14 +182,14 @@ object DocumentValidator:
                             // satisfied.
 
                             recurse(
-                              typeAndSelection ::: tail,
-                              validatedTypeDef combine validatedDirectives combine acc
+                                typeAndSelection ::: tail,
+                                validatedTypeDef combine validatedDirectives combine acc
                             )
 
                         // Fragment definitions have already been validated by this point so you only need to
                         // check if the fragment definition exists, there's no need to step into the defintion
                         case FragmentSpread(name, dirs) =>
-                            ctx.fragDef(name) match
+                            ctx.getFragDef(name) match
                                 case None =>
                                     // 5.5.2.1 Fragment definition must exist
                                     val validatedFragDef = MissingDefinition(name).invalidNec
@@ -354,15 +233,15 @@ object DocumentValidator:
 
         val validatedDirectives = validateDirectives(varDef.directives, EDL.VARIABLE_DEFINITION)
 
-        val validatedDefaultValue = ctx.typeDef(varDef.`type`.name) match
-            case Some(typeDef) => varDef.defaultValue.map(validateValue(_, typeDef)).sequence
-            case None          => None.valid
+        // val validatedDefaultValue = ctx.typeDef(varDef.`type`.name) match
+        //     case Some(typeDef) => varDef.defaultValue.map(validateValue(_, typeDef)).sequence
+        //     case None          => None.valid
 
         (
-          validatedVariableTypes,
-          validatedDirectives,
-          validatedDefaultValue
-        ).mapN((_, _, _) => varDef)
+            validatedVariableTypes,
+            validatedDirectives
+            //   validatedDefaultValue
+        ).mapN((_, _) => varDef)
     end validateVariableDefinition
 
     private def validateVariableDefinitions(
@@ -393,10 +272,10 @@ object DocumentValidator:
         val validatedVariableDefs = varDefs.traverse(validateVariableDefinition)
 
         (
-          validatedVariableNames,
-          validatedVariablesDefined,
-          validatedVariablesUsed,
-          validatedVariableDefs
+            validatedVariableNames,
+            validatedVariablesDefined,
+            validatedVariablesUsed,
+            validatedVariableDefs
         ).mapN((_, _, _, _) => varDefs)
     end validateVariableDefinitions
 
@@ -406,11 +285,11 @@ object DocumentValidator:
         import ctx.given
 
         // val opDefReqs = findOpDefReqs(opDef, fragDefReqs)
-        val opDefReqs = ctx.opDefDepGraph.deps.get(opDef.name).getOrElse(Set.empty)
+        val opDefReqs = ctx.getVarReqs(opDef.name).getOrElse(Set.empty[Variable]).map(_.name)
 
         val validatedVariableDefs = validateVariableDefinitions(opDef.variableDefinitions, opDefReqs)
 
-        val validatedSelectionSets = ctx.opTypeDef(opDef.operationType) match
+        val validatedSelectionSets = ctx.getOpTypeDef(opDef.operationType) match
             case Some(typeDef: ObjectTypeDefinition) =>
                 validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name))
             case _ => MissingDefinition(Name("")).invalidNec // TODO: Need to handle non named type defs somehow
@@ -421,9 +300,9 @@ object DocumentValidator:
             case Subscription => validateDirectives(opDef.directives, EDL.SUBSCRIPTION)
 
         (
-          validatedVariableDefs,
-          validatedSelectionSets,
-          validatedDirectives
+            validatedVariableDefs,
+            validatedSelectionSets,
+            validatedDirectives
         ).mapN((_, _, _) => opDef)
     end validateOperationDefinition
 
@@ -436,14 +315,14 @@ object DocumentValidator:
         val validatedOpDefs = opDefs.traverse(validateOperationDefinition)
 
         (
-          // 5.2.1.1 unique operation names
-          validateUniqueName(opDefs),
+            // 5.2.1.1 unique operation names
+            validateUniqueName(opDefs),
 
-          // 5.2.2.1 Lone anonymous operation
-          validateAnonymousOperationDefinition(namedOps, anonOps),
+            // 5.2.2.1 Lone anonymous operation
+            validateAnonymousOperationDefinition(namedOps, anonOps),
 
-          // validate each operation definition
-          validatedOpDefs
+            // validate each operation definition
+            validatedOpDefs
         ).mapN((_, _, validatedOpDefs) => opDefs)
     end validateOperationDefinitions
 
@@ -452,9 +331,9 @@ object DocumentValidator:
     )(using ctx: Context): Validated[FragmentDefinition] =
         import ctx.given
         (
-          validateSelectionSet(fragDef.selectionSet.toList, fragDef.on),
-          validateObjectLikeTypeDefExists(fragDef.on),
-          validateDirectives(fragDef.directives, EDL.FRAGMENT_DEFINITION)
+            validateSelectionSet(fragDef.selectionSet.toList, fragDef.on),
+            validateObjectLikeTypeDefExists(fragDef.on),
+            validateDirectives(fragDef.directives, EDL.FRAGMENT_DEFINITION)
         ).mapN((_, _, _) => fragDef)
 
     private def validateFragmentDefinitions(fragDefs: List[FragmentDefinition])(using
@@ -463,59 +342,55 @@ object DocumentValidator:
         // 5.5.2.2 Fragment definitions must not contain cycles
         // topologically sorting the fragment dependency graph will find cycles and provide an order to
         // find fragment definition requirements
-        ctx.fragDefDepGraph.topo match
+        ctx.fragDeps.topo match
             case HasCycles(cycles) => CyclesDetected(cycles).invalidNec
             case NoCycles(order)   =>
                 // TODO: factor this out to a function named findAllFragmentUses
                 //       pre-process the sortedgraph (sortedGraph.map ...) instead of doing it each iteration
 
                 val fragmentUses = ctx.fragSpreads
-                    .map(_.name)
                     .flatMap(name =>
-                        val deps = ctx.fragDefDepGraph.deps.get(name).getOrElse(Set.empty)
+                        val deps = ctx.fragDeps.deps.get(name).getOrElse(Set.empty)
                         name :: deps.toList
                     )
 
-                val allRefsToFragDefs = ctx.fragDefDepGraph.deps
+                val allRefsToFragDefs = ctx.fragDeps.deps
                     .map((_, deps) => deps)
                     .foldLeft(Set.empty[Name])(_ union _)
                     .toList
 
                 val validateFragDefsExist = allRefsToFragDefs.traverse(depName =>
-                    if ctx.fragDef(depName).isDefined then depName.validNec
+                    if ctx.getFragDef(depName).isDefined then depName.validNec
                     else MissingDefinition(depName).invalidNec
                 )
 
                 (
-                  // 5.5.1.1 fragment definition unique name
-                  validateUniqueName(fragDefs),
+                    // 5.5.1.1 fragment definition unique name
+                    validateUniqueName(fragDefs),
 
-                  // 5.5.1.4 Fragment definitions must be used
-                  validateIsUsed(fragDefs.map(_.name), fragmentUses),
+                    // 5.5.1.4 Fragment definitions must be used
+                    validateIsUsed(fragDefs.map(_.name), fragmentUses),
 
-                  // 5.5.2.1 Fragment definition must exist
-                  validateFragDefsExist,
+                    // 5.5.2.1 Fragment definition must exist
+                    validateFragDefsExist,
 
-                  // validate individual frag defs
-                  fragDefs.traverse(validateFragmentDefinition)
+                    // validate individual frag defs
+                    fragDefs.traverse(validateFragmentDefinition)
                 ).mapN((_, _, _, _) => fragDefs)
     end validateFragmentDefinitions
 
     def validate(doc: ExecutableDocument, schemaCtx: SchemaContext): Validated[ExecutableDocument] =
-        val opDefs   = doc.definitions.collect { case o: OperationDefinition => o }
-        val fragDefs = doc.definitions.collect { case o: FragmentDefinition => o }
-
-        val docCtx = DocumentContext(opDefs, fragDefs)
+        val docCtx = DocumentContext(doc)
 
         given Context = Context(schemaCtx, docCtx)
 
         // 5.1.1
         // This is implied by the fact that the validate function expects doc to be an ExecutableDocument
 
-        validateFragmentDefinitions(fragDefs).andThen(_ =>
+        validateFragmentDefinitions(docCtx.fragDefs).andThen(_ =>
             (
-              validateOperationDefinitions(opDefs),
-              validateSubscriptionsHaveSingleRoot
+                validateOperationDefinitions(docCtx.opDefs),
+                validateSubscriptionsHaveSingleRoot
             ).mapN((_, _) => doc)
         )
     end validate

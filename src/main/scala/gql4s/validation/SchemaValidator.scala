@@ -20,81 +20,6 @@ import parsing.TypeSystemDirectiveLocation as TSDL
 import validation.Topo.*
 
 object SchemaValidator:
-    case class ValidSchema(
-        schema: TypeSystemDocument,
-        objTypes: Map[ObjectTypeDefinition, Set[InterfaceTypeDefinition]]
-    ):
-        export schema.*
-
-    // /////////////////////////////////////////////////////////////////////////////////////////////////
-    // // Helper functions
-    // def buildInputObjDepGraph[T <: InputObjectTypeDefinition](
-    //     inObjDefs: List[T]
-    // ): DependencyGraph[T] =
-    //     LinkedHashMap.from(
-    //       inObjDefs
-    //           .map { inObj =>
-    //               val deps = inObj.fields
-    //                   .map(_.`type`.name)
-    //                   .flatMap(name => inObjDefs.find(_.name == name))
-    //                   .map(_.name)
-    //                   .toSet
-    //               inObj -> deps
-    //           }
-    //     )
-
-    // def buildDirDefDepGraph(dirDefs: List[DirectiveDefinition])(using
-    //     ctx: SchemaContext
-    // ): DependencyGraph[DirectiveDefinition] =
-    //     def toNameSet(dirs: List[Directive]): Set[Name] = dirs.map(_.name).toSet
-    //     @tailrec
-    //     def recurse(acc: List[HasDirectives], accDeps: Set[Name] = Set.empty): Set[Name] =
-    //         acc match
-    //             case Nil => accDeps
-    //             case (ScalarTypeDefinition(_, dirs)) :: tail =>
-    //                 recurse(tail, toNameSet(dirs) union accDeps)
-    //             case (InputValueDefinition(_, tpe, _, dirs)) :: tail =>
-    //                 val more = ctx.typeDef(tpe.name).toList
-    //                 recurse(more ++ tail, toNameSet(dirs) union accDeps)
-    //             case (FieldDefinition(_, args, tpe, dirs)) :: tail =>
-    //                 val more = args ++ ctx.typeDef(tpe.name).toList
-    //                 recurse(more ++ tail, toNameSet(dirs) union accDeps)
-    //             case (ObjectTypeDefinition(_, ints, dirs, fields)) :: tail =>
-    //                 val more = fields ++ ints.map(_.name).flatMap(ctx.typeDef)
-    //                 recurse(more ++ tail, toNameSet(dirs) union accDeps)
-    //             case (InterfaceTypeDefinition(_, ints, dirs, fields)) :: tail =>
-    //                 val more = fields ++ ints.map(_.name).flatMap(ctx.typeDef)
-    //                 recurse(more ++ tail, toNameSet(dirs) union accDeps)
-    //             case (UnionTypeDefinition(_, dirs, tpes)) :: tail =>
-    //                 val more = tpes.map(_.name).flatMap(ctx.typeDef)
-    //                 recurse(more ++ tail, toNameSet(dirs) union accDeps)
-    //             case (EnumValueDefinition(_, dirs)) :: tail =>
-    //                 recurse(tail, toNameSet(dirs) union accDeps)
-    //             case (EnumTypeDefinition(_, dirs, vals)) :: tail =>
-    //                 recurse(vals ++ tail, toNameSet(dirs) union accDeps)
-    //             case (InputObjectTypeDefinition(_, dirs, fields)) :: tail =>
-    //                 recurse(fields ++ tail, toNameSet(dirs) union accDeps)
-    //             case _ :: tail =>
-    //                 recurse(tail, accDeps)
-    //         end match
-    //     end recurse
-
-    //     LinkedHashMap.from(
-    //       dirDefs.map { dirDef =>
-    //           val argDirs = dirDef.arguments.flatMap(_.directives.map(_.name)).toSet
-    //           val argTypeDirs =
-    //               recurse(
-    //                 dirDef.arguments
-    //                     .map(_.`type`.name)
-    //                     .flatMap(ctx.typeDef)
-    //               )
-    //           dirDef -> (argDirs union argTypeDirs)
-    //       }
-    //     )
-    // end buildDirDefDepGraph
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////
-    // Validators
     def validateNotEmpty[T](ts: List[T]): Validated[List[T]] =
         if ts.isEmpty then StructureEmpty().invalidNec
         else ts.validNec
@@ -103,7 +28,7 @@ object SchemaValidator:
         if n.text.startsWith("__") then InvalidName(n).invalidNec else n.validNec
 
     def validateObjLikeTypeExists(name: Name)(using ctx: SchemaContext): Validated[ObjectLikeTypeDefinition] =
-        ctx.typeDef(name) match
+        ctx.getTypeDef(name) match
             case Some(typeDef: (ObjectTypeDefinition | InterfaceTypeDefinition)) => typeDef.validNec
             case _                                                               => MissingDefinition(name).invalidNec
 
@@ -168,8 +93,8 @@ object SchemaValidator:
                 case None => MissingName(bField.name).invalidNec
                 case Some(aField) =>
                     (
-                      validateImplementationArgs(aField, bField),
-                      validateCovariant(aField.`type`, bField.`type`)
+                        validateImplementationArgs(aField, bField),
+                        validateCovariant(aField.`type`, bField.`type`)
                     ).mapN((validArgs, validReturnType) => aField)
         }
         .map(_ => a)
@@ -187,8 +112,8 @@ object SchemaValidator:
         SchemaContext
     ): Validated[T] =
         (
-          validateDeclaredImplementations(a, b),
-          validateImplementationFields(a, b)
+            validateDeclaredImplementations(a, b),
+            validateImplementationFields(a, b)
         ).mapN((_, _) => a)
     end validateImplementation
 
@@ -197,8 +122,8 @@ object SchemaValidator:
 
     def validateFieldDefinition(fieldDef: FieldDefinition)(using SchemaContext): Validated[FieldDefinition] =
         (
-          validateDirectives(fieldDef.directives, TSDL.FIELD_DEFINITION),
-          fieldDef.arguments.traverse(validateArgDefinition)
+            validateDirectives(fieldDef.directives, TSDL.FIELD_DEFINITION),
+            fieldDef.arguments.traverse(validateArgDefinition)
         ).mapN((_, _) => fieldDef)
 
     /** Validates both object and interface types according to the `Type Validation` sections defined in the GraphQL
@@ -213,103 +138,100 @@ object SchemaValidator:
       */
     def validateObjLike(typeDef: ObjectLikeTypeDefinition)(using SchemaContext): Validated[ObjectLikeTypeDefinition] =
         (
-          // 3.6.1 Object like types must define one or more fields
-          validateNotEmpty(typeDef.fields),
+            // 3.6.1 Object like types must define one or more fields
+            validateNotEmpty(typeDef.fields),
 
-          // 3.6.2.1 Fields must have unique names within the Object type
-          validateUniqueName(typeDef.fields),
+            // 3.6.2.1 Fields must have unique names within the Object type
+            validateUniqueName(typeDef.fields),
 
-          // 3.6.2.2 Field names must not start with `__`
-          typeDef.fields.map(_.name).traverse(validateName),
+            // 3.6.2.2 Field names must not start with `__`
+            typeDef.fields.map(_.name).traverse(validateName),
 
-          // 3.6.2.3 Fields must return an output type
-          typeDef.fields.map(_.`type`).traverse(validateType(_, isOutputType)),
+            // 3.6.2.3 Fields must return an output type
+            typeDef.fields.map(_.`type`).traverse(validateType(_, isOutputType)),
 
-          // 3.6.2.4.1
-          typeDef.fields.flatMap(_.arguments).map(_.name).traverse(validateName),
+            // 3.6.2.4.1
+            typeDef.fields.flatMap(_.arguments).map(_.name).traverse(validateName),
 
-          // 3.6.2.4.2
-          typeDef.fields
-              .flatMap(_.arguments)
-              .map(_.`type`)
-              .traverse(validateType(_, isInputType)),
+            // 3.6.2.4.2
+            typeDef.fields
+                .flatMap(_.arguments)
+                .map(_.`type`)
+                .traverse(validateType(_, isInputType)),
 
-          // 3.6.3 An object like type may declare that it implements one or more unique interfaces.
-          //       If it's an interface type it may not implement itself
-          validateUniqueName(typeDef.interfaces),
-          validateSelfImplementation(typeDef),
+            // 3.6.3 An object like type may declare that it implements one or more unique interfaces.
+            //       If it's an interface type it may not implement itself
+            validateUniqueName(typeDef.interfaces),
+            validateSelfImplementation(typeDef),
 
-          // 3.6.4 An object type must be a super-set of all interfaces it implements
-          typeDef.interfaces
-              .map(_.name)
-              .traverse(validateObjLikeTypeExists)
-              .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _))),
-          typeDef.fields.traverse(validateFieldDefinition)
+            // 3.6.4 An object type must be a super-set of all interfaces it implements
+            typeDef.interfaces
+                .map(_.name)
+                .traverse(validateObjLikeTypeExists)
+                .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _))),
+            typeDef.fields.traverse(validateFieldDefinition)
         ).mapN((_, _, _, _, _, _, _, _, _, _) => typeDef)
     end validateObjLike
 
     def validateObjTypeDef(typeDef: ObjectTypeDefinition)(using SchemaContext): Validated[ObjectTypeDefinition] =
         (
-          validateDirectives(typeDef.directives, TSDL.OBJECT),
-          validateObjLike(typeDef)
+            validateDirectives(typeDef.directives, TSDL.OBJECT),
+            validateObjLike(typeDef)
         ).mapN((_, _) => typeDef)
 
     def validateInterfaceTypeDef(
         typeDef: InterfaceTypeDefinition
     )(using SchemaContext): Validated[InterfaceTypeDefinition] =
         (
-          validateDirectives(typeDef.directives, TSDL.INTERFACE),
-          validateObjLike(typeDef)
+            validateDirectives(typeDef.directives, TSDL.INTERFACE),
+            validateObjLike(typeDef)
         ).mapN((_, _) => typeDef)
 
-    def validateUnion(typeDef: UnionTypeDefinition)(using SchemaContext): Validated[UnionTypeDefinition] =
+    def validateUnionTypeDef(typeDef: UnionTypeDefinition)(using SchemaContext): Validated[UnionTypeDefinition] =
         (
-          // 3.8.1 A union type must include one or more unique member types.
-          validateNotEmpty(typeDef.unionMemberTypes),
-          validateUniqueName(typeDef.unionMemberTypes),
+            // 3.8.1 A union type must include one or more unique member types.
+            validateNotEmpty(typeDef.unionMemberTypes),
+            validateUniqueName(typeDef.unionMemberTypes),
 
-          // 3.8.2 The member types of a union type must all be object base types
-          validateNamedTypes(typeDef.unionMemberTypes, isObjectType),
+            // 3.8.2 The member types of a union type must all be object base types
+            validateNamedTypes(typeDef.unionMemberTypes, isObjectType),
 
-          // validate directives
-          validateDirectives(typeDef.directives, TSDL.UNION)
+            // validate directives
+            validateDirectives(typeDef.directives, TSDL.UNION)
         ).mapN((_, _, _, _) => typeDef)
-    end validateUnion
 
-    def validateEnum(typeDef: EnumTypeDefinition)(using SchemaContext): Validated[EnumTypeDefinition] =
+    def validateEnumTypeDef(typeDef: EnumTypeDefinition)(using SchemaContext): Validated[EnumTypeDefinition] =
         (
-          // 3.9.1 An Enum type must define one or more unique enum values.
-          validateNotEmpty(typeDef.values),
-          validateUniqueName(typeDef.values),
+            // 3.9.1 An Enum type must define one or more unique enum values.
+            validateNotEmpty(typeDef.values),
+            validateUniqueName(typeDef.values),
 
-          // validate directives
-          validateDirectives(typeDef.directives, TSDL.ENUM),
-          validateDirectives(typeDef.values.flatMap(_.directives), TSDL.ENUM_VALUE)
+            // validate directives
+            validateDirectives(typeDef.directives, TSDL.ENUM),
+            validateDirectives(typeDef.values.flatMap(_.directives), TSDL.ENUM_VALUE)
         ).mapN((_, _, _, _) => typeDef)
-    end validateEnum
 
-    def validateInputObj(typeDef: InputObjectTypeDefinition)(using
+    def validateInputObjTypeDef(typeDef: InputObjectTypeDefinition)(using
         SchemaContext
     ): Validated[InputObjectTypeDefinition] =
         (
-          // 3.10.1 An Input Object type must define one or more input args (fields)
-          validateNotEmpty(typeDef.fields),
+            // 3.10.1 An Input Object type must define one or more input args (fields)
+            validateNotEmpty(typeDef.fields),
 
-          // 3.10.2.1 Arguments (fields) must have unique names within the Object type
-          validateUniqueName(typeDef.fields),
+            // 3.10.2.1 Arguments (fields) must have unique names within the Object type
+            validateUniqueName(typeDef.fields),
 
-          // 3.10.2.2 Argument (Field) names must not start with `__`
-          typeDef.fields.map(_.name).traverse(validateName),
+            // 3.10.2.2 Argument (Field) names must not start with `__`
+            typeDef.fields.map(_.name).traverse(validateName),
 
-          // 3.10.2.3 Arguments (Fields) must return an output type
-          typeDef.fields.map(_.`type`).traverse(validateType(_, isInputType)),
+            // 3.10.2.3 Arguments (Fields) must return an output type
+            typeDef.fields.map(_.`type`).traverse(validateType(_, isInputType)),
 
-          // validate directives
-          validateDirectives(typeDef.directives, TSDL.INPUT_OBJECT),
-          validateDirectives(typeDef.fields.flatMap(_.directives), TSDL.INPUT_FIELD_DEFINITION)
+            // validate directives
+            validateDirectives(typeDef.directives, TSDL.INPUT_OBJECT),
+            validateDirectives(typeDef.fields.flatMap(_.directives), TSDL.INPUT_FIELD_DEFINITION)
         )
             .mapN((_, _, _, _, _, _) => typeDef)
-    end validateInputObj
 
     def validateScalarTypeDefinition(typeDef: ScalarTypeDefinition)(using
         SchemaContext
@@ -322,50 +244,32 @@ object SchemaValidator:
     def validateDirectiveDefinitions(dirDefs: List[DirectiveDefinition])(using
         ctx: SchemaContext
     ): Validated[List[DirectiveDefinition]] =
-        ctx.dirDefDepGraph.topo match
+        ctx.dirDeps.topo match
             case NoCycles(_) =>
                 (
-                  dirDefs.map(_.name).traverse(validateName),
-                  dirDefs.flatMap(_.arguments).map(_.name).traverse(validateName),
-                  dirDefs.flatMap(_.arguments).map(_.`type`).traverse(validateType(_, isInputType))
+                    dirDefs.map(_.name).traverse(validateName),
+                    dirDefs.flatMap(_.arguments).map(_.name).traverse(validateName),
+                    dirDefs.flatMap(_.arguments).map(_.`type`).traverse(validateType(_, isInputType))
                 ).mapN((_, _, _) => dirDefs)
             case HasCycles(cycles) => CyclesDetected(cycles).invalidNec
 
     def validate(schema: TypeSystemDocument): Validated[TypeSystemDocument] =
-        val definitions = schema.definitions ++ schema.builtInScalarDefs
+        val ctx             = SchemaContext(schema)
+        given SchemaContext = ctx
 
-        val schemaDefs     = definitions.collect { case o: SchemaDefinition => o }
-        val typeDefs       = definitions.collect { case o: TypeDefinition => o }
-        val objTypeDefs    = typeDefs.collect { case o: ObjectTypeDefinition => o }
-        val ifTypeDefs     = typeDefs.collect { case o: InterfaceTypeDefinition => o }
-        val scalarTypeDefs = typeDefs.collect { case o: ScalarTypeDefinition => o }
-        val unionDefs      = definitions.collect { case o: UnionTypeDefinition => o }
-        val enumDefs       = definitions.collect { case o: EnumTypeDefinition => o }
-        val inObjDefs      = definitions.collect { case o: InputObjectTypeDefinition => o }
-        val directiveDefs  = definitions.collect { case o: DirectiveDefinition => o }
-        val operationDefs  = definitions.collect { case o: OperationDefinition => o }
-
-        val ctx = new SchemaContext(
-          schemaDefs.headOption,
-          typeDefs,
-          directiveDefs,
-          operationDefs
-        )
-
-        val validatedInObjDefs = ctx.inObjTypeDefDepGraph.topo match
+        val validatedInObjDefs = ctx.inObjDeps.topo match
             case NoCycles(order)   => order.validNec
             case HasCycles(cycles) => CyclesDetected(cycles).invalidNec
 
-        given SchemaContext = ctx
         (
-          validateDirectiveDefinitions(directiveDefs),
-          schemaDefs.traverse(validateSchemaDefinition),
-          objTypeDefs.traverse(validateObjTypeDef),
-          ifTypeDefs.traverse(validateInterfaceTypeDef),
-          scalarTypeDefs.traverse(validateScalarTypeDefinition),
-          unionDefs.traverse(validateUnion),
-          enumDefs.traverse(validateEnum),
-          inObjDefs.traverse(validateInputObj),
-          validatedInObjDefs
+            validateDirectiveDefinitions(ctx.directiveDefs),
+            ctx.getSchemaDef.traverse(validateSchemaDefinition),
+            ctx.objTypeDefs.traverse(validateObjTypeDef),
+            ctx.ifTypeDefs.traverse(validateInterfaceTypeDef),
+            ctx.scalarTypeDefs.traverse(validateScalarTypeDefinition),
+            ctx.unionTypeDefs.traverse(validateUnionTypeDef),
+            ctx.enumTypeDefs.traverse(validateEnumTypeDef),
+            ctx.inObjTypeDefs.traverse(validateInputObjTypeDef),
+            validatedInObjDefs
         ).mapN((_, _, _, _, _, _, _, _, _) => schema)
 end SchemaValidator
