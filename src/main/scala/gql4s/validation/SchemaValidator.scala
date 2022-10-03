@@ -17,6 +17,7 @@ import errors.GqlError.*
 import parsing.*
 import parsing.Type.*
 import parsing.TypeSystemDirectiveLocation as TSDL
+import parsing.Value.*
 import validation.Topo.*
 
 object SchemaValidator:

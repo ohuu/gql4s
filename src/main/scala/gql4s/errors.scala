@@ -69,3 +69,4 @@ enum GqlError:
     case OperationDefinitionError(context: Option[String] = None)
     case SubscriptionHasMultipleRoots2(subName: Option[Name], context: Option[String] = None)
     case TypeMismatch2(found: Value, expected: Name, context: Option[String] = None)
+    case NullValueFound(name: Name, context: Option[String] = None)

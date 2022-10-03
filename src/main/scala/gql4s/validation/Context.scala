@@ -292,6 +292,11 @@ class DocumentContext(doc: ExecutableDocument):
     val getOpDef   = mapify(opDefs).get
     val getFragDef = mapify(fragDefs).get
     val getVarReqs = mapifyVarDeps(fragDeps, fragDefs, opDefs).get
+    val getVarDef =
+        Map.from(opDefs.map(opDef => opDef -> opDef.variableDefinitions)).map((k, v) => k -> mapify(v)).get.andThen {
+            case None          => (n: Name) => None
+            case Some(varDefs) => varDefs.get
+        }
 end DocumentContext
 
 class Context(val schemaCtx: SchemaContext, val docCtx: DocumentContext):

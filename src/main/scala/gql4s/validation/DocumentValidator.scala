@@ -8,6 +8,7 @@ package validation
 import scala.annotation.tailrec
 import scala.collection.immutable.HashMap
 import scala.collection.mutable.LinkedHashMap
+import scala.util.{Failure, Success, Try}
 
 import cats.implicits.*
 
@@ -70,6 +71,15 @@ object DocumentValidator:
             case Some(_) => InvalidNamedType(namedType.name).invalidNec
             case None    => MissingDefinition(namedType.name).invalidNec
 
+    def validateVar(opDef: OperationDefinition)(variable: Variable, expectedTypeName: Name)(using
+        ctx: Context
+    ): Validated[Value] =
+        ctx.getVarDef(opDef)(variable.name) match
+            case None => MissingVariable2(variable.name).invalidNec
+            case Some(varDef) =>
+                if varDef.`type`.name == expectedTypeName then variable.validNec
+                else TypeMismatch2(variable, expectedTypeName).invalidNec
+
     /** Performs various validation steps on selection sets. Bear in mind that this function will not validate fragment
       * definitions but will validate inline fragment definitions, you must call validateFragmentDefinition as well as
       * this function to fully validate an executable document.
@@ -85,54 +95,57 @@ object DocumentValidator:
       * @return
       *   Return a list of errors or Nil if there weren't any.
       */
-    private def validateSelectionSet(selectionSet: List[Selection], parentType: NamedType)(using
+    private def validateSelectionSet(
+        selectionSet: List[Selection],
+        parentType: NamedType,
+        opDef: Option[OperationDefinition] = None
+    )(using
         ctx: Context
     ): Validated[List[Selection]] =
         import ctx.given
 
         @tailrec
-        def recurse(accSelectionSet: List[(NamedType, Selection)], acc: Validated[Unit]): Validated[Unit] =
+        def recurse(
+            accSelectionSet: List[(NamedType, Selection)],
+            acc: Validated[List[Selection]] = Nil.validNec
+        ): Validated[List[Selection]] =
             accSelectionSet match
                 case Nil => acc
                 case (parentType, selection) :: tail =>
                     selection match
                         case field @ Field(_, fieldName, arguments, dirs, selectionSet) =>
+                            val validatedDirectives = validateDirectives(dirs, EDL.FIELD)
+
                             // 5.3.1 field selections must exist on object, interface and union types
                             ctx.getFieldDef(parentType)(fieldName) match
                                 case None =>
-                                    val validatedField      = MissingField2(fieldName, parentType).invalidNec[Unit]
-                                    val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
-                                    validatedField combine validatedDirectives combine acc
+                                    (MissingField2(fieldName, parentType).invalidNec, validatedDirectives, acc)
+                                        .mapN((_, _, _) => selectionSet)
                                 case Some(fieldDef) =>
-                                    val validatedArgs =
-                                        validateArguments(field.arguments, fieldDef).map(_ => ())
-                                    val validatedDirectives = validateDirectives(dirs, EDL.FIELD).map(_ => ())
+                                    val args = field.arguments
+                                    val validations = (
+                                        validatedDirectives,
+                                        validateArgs(args, fieldDef)
+                                        // opDef match
+                                        //     case None        => validateArgValues(args, fieldDef)
+                                        //     case Some(opDef) => validateArgValues(args, fieldDef, validateVar(opDef))
+                                    ).mapN((_, _) => selectionSet)
 
                                     val fieldType: NamedType = NamedType(fieldDef.`type`.name)
                                     ctx.getTypeDef(fieldType.name) match
                                         case None =>
                                             val validatedDef = MissingTypeDefinition(fieldType).invalidNec
-                                            recurse(
-                                                tail,
-                                                validatedArgs combine validatedDirectives combine validatedDef combine acc
-                                            )
+                                            recurse(tail, validations combine validatedDef combine acc)
 
                                         // We found it but it's a leaf type so we can't recurse into its children,
                                         // instead just carry on with the parent types other selections (tail)
                                         case Some(_: ScalarTypeDefinition | _: EnumTypeDefinition) =>
                                             // 5.3.3 leaf field selection validation
-                                            if selectionSet.isEmpty then
-                                                recurse(
-                                                    tail,
-                                                    validatedArgs combine validatedDirectives combine acc
-                                                )
+                                            if selectionSet.isEmpty then recurse(tail, validations combine acc)
                                             else
                                                 val validatedSelection =
                                                     InvalidSelection(fieldName, parentType).invalidNec
-                                                recurse(
-                                                    tail,
-                                                    validatedArgs combine validatedDirectives combine validatedSelection combine acc
-                                                )
+                                                recurse(tail, validations combine validatedSelection combine acc)
 
                                         // We found an object type so we need to recurse
                                         case Some(typeDef) =>
@@ -140,19 +153,18 @@ object DocumentValidator:
                                             if selectionSet.isEmpty then
                                                 val validatedSelection =
                                                     MissingSelection2(fieldName, parentType).invalidNec
-                                                validatedArgs combine validatedDirectives combine validatedSelection combine acc
+                                                validations combine validatedSelection combine acc
                                             else
                                                 val typeAndSelection = selectionSet.map(NamedType(typeDef.name) -> _)
-                                                recurse(
-                                                    typeAndSelection ::: tail,
-                                                    validatedArgs combine validatedDirectives combine acc
-                                                )
+                                                recurse(typeAndSelection ::: tail, validations combine acc)
                                     end match
 
                         case InlineFragment(Some(onType), dirs, selectionSet) =>
-                            val validatedTypeDef    = validateObjectLikeTypeDefExists(onType).map(_ => ())
-                            val validatedDirectives = validateDirectives(dirs, EDL.INLINE_FRAGMENT).map(_ => ())
-                            val typeAndSelection    = selectionSet.map(onType -> _).toList
+                            val validations = (
+                                validateObjectLikeTypeDefExists(onType),
+                                validateDirectives(dirs, EDL.INLINE_FRAGMENT)
+                            ).mapN((_, _) => selectionSet)
+                            val typeAndSelection = selectionSet.map(onType -> _).toList
 
                             // 5.5.2.3.1 Fragment spread type is valid if it's the same type as the parent type (same scope)
                             // 5.5.2.3.2
@@ -164,27 +176,22 @@ object DocumentValidator:
                                     parentType
                                 ).isValid
                             if !(isSame || isImplementation) then InvalidFragment(onType.name).invalidNec
-                            else
-                                recurse(
-                                    typeAndSelection ::: tail,
-                                    validatedTypeDef combine validatedDirectives combine acc
-                                )
+                            else recurse(typeAndSelection ::: tail, validations combine acc)
 
                         // Type name has been omitted so this inline fragment has the same type as enclosing
                         // context (e.g. the current parentType)
                         case InlineFragment(None, dirs, selectionSet) =>
-                            val validatedTypeDef    = validateObjectLikeTypeDefExists(parentType).map(_ => ())
-                            val validatedDirectives = validateDirectives(dirs, EDL.INLINE_FRAGMENT).map(_ => ())
-                            val typeAndSelection    = selectionSet.map(parentType -> _).toList
+                            val validations = (
+                                validateObjectLikeTypeDefExists(parentType),
+                                validateDirectives(dirs, EDL.INLINE_FRAGMENT)
+                            ).mapN((_, _) => selectionSet)
+                            val typeAndSelection = selectionSet.map(parentType -> _).toList
 
                             // no need for 5.5.2.3.x because in the case that no type is given, by definition
                             // the type of the fragment IS the type of the parent and therefore 5.5.2.3.1 is
                             // satisfied.
 
-                            recurse(
-                                typeAndSelection ::: tail,
-                                validatedTypeDef combine validatedDirectives combine acc
-                            )
+                            recurse(typeAndSelection ::: tail, validations combine acc)
 
                         // Fragment definitions have already been validated by this point so you only need to
                         // check if the fragment definition exists, there's no need to step into the defintion
@@ -208,7 +215,7 @@ object DocumentValidator:
                                     else recurse(tail, acc)
         end recurse
 
-        recurse(selectionSet.map(parentType -> _), ().validNec).map(_ => selectionSet)
+        recurse(selectionSet.map(parentType -> _))
     end validateSelectionSet
 
     private def validateAnonymousOperationDefinition(
@@ -291,7 +298,7 @@ object DocumentValidator:
 
         val validatedSelectionSets = ctx.getOpTypeDef(opDef.operationType) match
             case Some(typeDef: ObjectTypeDefinition) =>
-                validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name))
+                validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), Some(opDef))
             case _ => MissingDefinition(Name("")).invalidNec // TODO: Need to handle non named type defs somehow
 
         val validatedDirectives = opDef.operationType match
