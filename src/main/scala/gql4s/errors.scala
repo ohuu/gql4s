@@ -55,6 +55,7 @@ enum GqlError:
     case MissingField2(name: Name, parentType: NamedType, context: Option[String] = None)
     case MissingSelection2(fieldName: Name, parentType: NamedType, context: Option[String] = None)
     case MissingVariable2(name: Name, context: Option[String] = None)
+    case MissingVariableDefinition(name: Name, context: Option[String] = None)
     case MissingDefinition(name: Name, context: Option[String] = None)
     case UnusedDefinition(name: Name, context: Option[String] = None)
     case DuplicateName(name: Name, context: Option[String] = None)
@@ -68,5 +69,7 @@ enum GqlError:
     case CyclesDetected(cycle: List[Name], context: Option[String] = None)
     case OperationDefinitionError(context: Option[String] = None)
     case SubscriptionHasMultipleRoots2(subName: Option[Name], context: Option[String] = None)
-    case TypeMismatch2(found: Value, expected: Name, context: Option[String] = None)
+    case TypeMismatch2(found: Value, expected: Type, context: Option[String] = None)
     case NullValueFound(name: Name, context: Option[String] = None)
+
+    case TestError

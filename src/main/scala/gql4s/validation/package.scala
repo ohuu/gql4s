@@ -164,6 +164,7 @@ def validateInputObjectValue(
                     case Some(_) => recurse(tail, acc)
     end recurse
 
+    // TODO: PRETTY SURE THIS IS SAFE TO REMOVE
     // ctx.getTypeDef(inValDef.`type`.name) match
     //     case Some(inObjTypeDef: InputObjectTypeDefinition) =>
     //         val validations = (
@@ -187,110 +188,99 @@ def validateInputObjectValue(
     recurse(inObjVal.fields.map(_ -> inObjTypeDef), validations)
 end validateInputObjectValue
 
-def validateVar(variable: Variable, expectedTypeName: Name): Validated[Value] =
-    MissingDefinition(variable.name).invalidNec
+def validateValue(value: Value, valueType: Type)(validateVariable: (Variable, Type) => Validated[Value])(using
+    ctx: SchemaContext
+): Validated[Value] =
+    valueType match
+        case ListType(listType) =>
+            value match
+                case ListValue(values) => values.traverse(validateValue(_, listType)(validateVariable)).map(_ => value)
+                case v: Variable       => validateVariable(v, valueType)
+                case _                 => TypeMismatch2(value, valueType).invalidNec
 
-def validateArgValues(
-    args: List[Argument],
-    within: FieldDefinition | DirectiveDefinition,
-    validateVar: (variable: Variable, expectedTypeName: Name) => Validated[Value] = validateVar
-)(using ctx: SchemaContext): Validated[List[Value]] =
-    def validateValue(value: Value, valueType: Type): Validated[Value] =
-        valueType match
-            case ListType(listType) =>
-                value match
-                    case ListValue(values) =>
-                        values.traverse(validateValue(_, listType)).map(_ => value)
-                    case _ => TypeMismatch2(value, listType.name).invalidNec
+        case NonNullType(requiredType) =>
+            value match
+                case NullValue   => NullValueFound(valueType.name).invalidNec
+                case v: Variable => validateVariable(v, valueType)
+                case _           => validateValue(value, requiredType)(validateVariable)
 
-            case NonNullType(requiredType) =>
-                value match
-                    case NullValue => NullValueFound(valueType.name).invalidNec
-                    case _         => validateValue(value, requiredType)
+        case NamedType(name) =>
+            val typeDef = ctx.getTypeDef(name).get
+            typeDef match
+                case ScalarTypeDefinition(Name("Int"), _) =>
+                    value match
+                        case v @ IntValue(value) =>
+                            Try(value.toInt) match
+                                case Success(_) => v.valid
+                                case Failure(_) => TypeMismatch2(v, NamedType(Name("Int"))).invalidNec
+                        case v @ Variable(_) => validateVariable(v, NamedType(Name("Int")))
+                        case v @ NullValue   => v.valid
+                        case v               => TypeMismatch2(v, NamedType(Name("Int"))).invalidNec
+                case ScalarTypeDefinition(Name("Float"), _) =>
+                    value match
+                        case v @ FloatValue(value) =>
+                            Try(value.toFloat) match
+                                case Success(_) => v.valid
+                                case Failure(_) => TypeMismatch2(v, NamedType(Name("Float"))).invalidNec
+                        case v @ Variable(_) => validateVariable(v, NamedType(Name("Float")))
+                        case v @ NullValue   => v.valid
+                        case v               => TypeMismatch2(v, NamedType(Name("Float"))).invalidNec
+                case ScalarTypeDefinition(Name("String"), _) =>
+                    value match
+                        case v @ StringValue(_) => v.valid
+                        case v @ Variable(_)    => validateVariable(v, NamedType(Name("String")))
+                        case v @ NullValue      => v.valid
+                        case v                  => TypeMismatch2(v, NamedType(Name("String"))).invalidNec
+                case ScalarTypeDefinition(Name("Boolean"), _) =>
+                    value match
+                        case v @ BooleanValue(value) =>
+                            Try(value.toBoolean) match
+                                case Success(_) => v.valid
+                                case Failure(_) => TypeMismatch2(v, NamedType(Name("Boolean"))).invalidNec
+                        case v @ Variable(_) => validateVariable(v, NamedType(Name("Boolean")))
+                        case v @ NullValue   => v.valid
+                        case v               => TypeMismatch2(v, NamedType(Name("Boolean"))).invalidNec
+                case ScalarTypeDefinition(Name("ID"), _) =>
+                    value match
+                        case v @ StringValue(value) => v.valid
+                        case v @ IntValue(value) =>
+                            Try(value.toInt) match
+                                case Success(_) => v.valid
+                                case Failure(_) => TypeMismatch2(v, NamedType(Name("ID"))).invalidNec
+                        case v @ Variable(_) => validateVariable(v, NamedType(Name("ID")))
+                        case v @ NullValue   => v.valid
+                        case v               => TypeMismatch2(v, NamedType(Name("ID"))).invalidNec
 
-            case NamedType(name) =>
-                val typeDef = ctx.getTypeDef(name).get
-                typeDef match
-                    case ScalarTypeDefinition(Name("Int"), _) =>
-                        value match
-                            case v @ IntValue(value) =>
-                                Try(value.toInt) match
-                                    case Success(_) => v.valid
-                                    case Failure(_) => TypeMismatch2(v, Name("Int")).invalidNec
-                            case v @ Variable(_) => validateVar(v, Name("Int"))
-                            case v @ NullValue   => v.valid
-                            case v               => TypeMismatch2(v, Name("Int")).invalidNec
-                    case ScalarTypeDefinition(Name("Float"), _) =>
-                        value match
-                            case v @ FloatValue(value) =>
-                                Try(value.toFloat) match
-                                    case Success(_) => v.valid
-                                    case Failure(_) => TypeMismatch2(v, Name("Float")).invalidNec
-                            case v @ Variable(_) => validateVar(v, Name("Float"))
-                            case v @ NullValue   => v.valid
-                            case v               => TypeMismatch2(v, Name("Float")).invalidNec
-                    case ScalarTypeDefinition(Name("String"), _) =>
-                        value match
-                            case v @ StringValue(_) => v.valid
-                            case v @ Variable(_)    => validateVar(v, Name("String"))
-                            case v @ NullValue      => v.valid
-                            case v                  => TypeMismatch2(v, Name("String")).invalidNec
-                    case ScalarTypeDefinition(Name("Boolean"), _) =>
-                        value match
-                            case v @ BooleanValue(value) =>
-                                Try(value.toBoolean) match
-                                    case Success(_) => v.valid
-                                    case Failure(_) => TypeMismatch2(v, Name("Boolean")).invalidNec
-                            case v @ Variable(_) => validateVar(v, Name("Boolean"))
-                            case v @ NullValue   => v.valid
-                            case v               => TypeMismatch2(v, Name("Boolean")).invalidNec
-                    case ScalarTypeDefinition(Name("ID"), _) =>
-                        value match
-                            case v @ StringValue(value) => v.valid
-                            case v @ IntValue(value) =>
-                                Try(value.toInt) match
-                                    case Success(_) => v.valid
-                                    case Failure(_) => TypeMismatch2(v, Name("ID")).invalidNec
-                            case v @ Variable(_) => validateVar(v, Name("ID"))
-                            case v @ NullValue   => v.valid
-                            case v               => TypeMismatch2(v, Name("ID")).invalidNec
+                case x: ScalarTypeDefinition =>
+                    // TODO: Not sure what to do here!
+                    ???
 
-                    case x: ScalarTypeDefinition =>
-                        // TODO: Not sure what to do here!
-                        ???
+                case typeDef: EnumTypeDefinition =>
+                    value match
+                        case value: EnumValue if typeDef.values.exists(_.value == value) => value.valid
+                        case v @ Variable(_) => validateVariable(v, valueType)
+                        case NullValue       => value.valid
+                        case _               => TypeMismatch2(value, valueType).invalidNec
 
-                    case typeDef: EnumTypeDefinition =>
-                        value match
-                            case value: EnumValue if typeDef.values.exists(_.value == value) => value.valid
-                            case value @ Variable(_) => validateVar(value, typeDef.name)
-                            case NullValue           => value.valid
-                            case _                   => TypeMismatch2(value, typeDef.name).invalidNec
-
-                    case typeDef: InputObjectTypeDefinition =>
-                        value match
-                            case value @ ObjectValue(fields) =>
-                                validateInputObjectValue(value, typeDef)
-                                    .andThen(_ =>
-                                        fields.traverse(field =>
-                                            val expectedType = typeDef.fields.find(_.name == field.name).get.`type`
-                                            validateValue(field.value, expectedType)
-                                        )
+                case typeDef: InputObjectTypeDefinition =>
+                    value match
+                        case value @ ObjectValue(fields) =>
+                            validateInputObjectValue(value, typeDef)
+                                .andThen(_ =>
+                                    fields.traverse(field =>
+                                        val expectedType = typeDef.fields.find(_.name == field.name).get.`type`
+                                        validateValue(field.value, expectedType)(validateVariable)
                                     )
-                                    .map(_ => value)
-                            case value @ Variable(_) => validateVar(value, typeDef.name)
-                            case NullValue           => value.valid
-                            case _                   => TypeMismatch2(value, typeDef.name).invalidNec
+                                )
+                                .map(_ => value)
+                        case v @ Variable(_) => validateVariable(v, valueType)
+                        case NullValue       => value.valid
+                        case _               => TypeMismatch2(value, valueType).invalidNec
 
-                    // never valid inputs
-                    case _: (ObjectTypeDefinition | InterfaceTypeDefinition | UnionTypeDefinition) =>
-                        InvalidType(valueType).invalidNec
-    end validateValue
-
-    args.traverse(arg =>
-        val argDef = within.arguments.find(_.name == arg.name).get // Must exist if we've got here
-        validateValue(arg.value, argDef.`type`)
-    )
-end validateArgValues
+                // never valid inputs
+                case _: (ObjectTypeDefinition | InterfaceTypeDefinition | UnionTypeDefinition) =>
+                    InvalidType(valueType).invalidNec
+end validateValue
 
 /** Validate a fields arguments
   * @param args
@@ -303,18 +293,18 @@ end validateArgValues
 def validateArgs(
     args: List[Argument],
     `def`: FieldDefinition | DirectiveDefinition
+)(
+    validateVariable: (Variable, Type) => Validated[Value]
 )(using ctx: SchemaContext): Validated[List[Argument]] =
     val validatedArgs =
-        args.map { case Argument(name, _) =>
+        args.traverse { case arg @ Argument(name, _) =>
             // 5.4.1 args exist
             `def`.arguments.find(_.name == name) match
-                case None =>
-                    MissingDefinition(
-                        name,
-                        Some(s"in definition ${`def`.name}")
-                    ).invalidNec
-                case _ => ().validNec
-        }.combineAll
+                case None         => MissingDefinition(name, Some(s"in definition ${`def`.name}")).invalidNec
+                case Some(argDef) => (arg -> argDef).validNec
+        }.andThen(argsWithDef =>
+            argsWithDef.traverse { case (arg, argDef) => validateValue(arg.value, argDef.`type`)(validateVariable) }
+        )
 
     // 5.4.2 args are unique
     val validatedArgNames = validateUniqueName(args).map(_ => ())
@@ -352,15 +342,13 @@ def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
 
     validateDirDefExists
         .andThen(dirDef =>
-            val validatedArgs = validateArgs(dir.arguments, dirDef)
-            // val validatedArgValues = validateArgValues(dir.arguments, dirDef)
+            val validatedArgs = validateArgs(dir.arguments, dirDef)((value, _) => value.validNec)
             val validatedLocation =
                 if dirDef.directiveLocs.find(_ == currLoc).isDefined then dirDef.validNec
                 else InvalidLocation(dir.name).invalidNec
 
             (
                 validatedArgs,
-                // validatedArgValues,
                 validatedLocation
             ).mapN((_, _) => dir -> dirDef)
         )
@@ -399,7 +387,7 @@ end validateDirectives
 // 5.3.2 Field merging needs to be implemented (BIG)
 // ✔️✔️ 5.4.1, 5.4.2 & 5.4.2.1 must also be applied to directives
 // 5.5.2.3.4 Abstract spreads within abstract scope need to be validated
-// 5.6.1 Value type must be validated
+// ✔️✔️ 5.6.1 Value type must be validated
 // 5.8.5 Variable usages must be valid (BIG)
 
 // Extensions need to be validated (LATER)

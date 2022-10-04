@@ -71,14 +71,16 @@ object DocumentValidator:
             case Some(_) => InvalidNamedType(namedType.name).invalidNec
             case None    => MissingDefinition(namedType.name).invalidNec
 
-    def validateVar(opDef: OperationDefinition)(variable: Variable, expectedTypeName: Name)(using
+    def validateVariable(opDef: OperationDefinition)(variable: Variable, expectedType: Type)(using
         ctx: Context
     ): Validated[Value] =
         ctx.getVarDef(opDef)(variable.name) match
-            case None => MissingVariable2(variable.name).invalidNec
+            case None => MissingVariableDefinition(variable.name).invalidNec
             case Some(varDef) =>
-                if varDef.`type`.name == expectedTypeName then variable.validNec
-                else TypeMismatch2(variable, expectedTypeName).invalidNec
+                if varDef.`type` == expectedType then variable.validNec
+                else TypeMismatch2(variable, expectedType).invalidNec
+
+    def skipVariableValidation(variable: Variable, expectedType: Type): Validated[Value] = variable.validNec
 
     /** Performs various validation steps on selection sets. Bear in mind that this function will not validate fragment
       * definitions but will validate inline fragment definitions, you must call validateFragmentDefinition as well as
@@ -125,10 +127,12 @@ object DocumentValidator:
                                     val args = field.arguments
                                     val validations = (
                                         validatedDirectives,
-                                        validateArgs(args, fieldDef)
-                                        // opDef match
-                                        //     case None        => validateArgValues(args, fieldDef)
-                                        //     case Some(opDef) => validateArgValues(args, fieldDef, validateVar(opDef))
+
+                                        // if we're in an operation definition then validation variable references
+                                        // for values. Else skip this step because we must be in a fragment def
+                                        opDef match
+                                            case None        => validateArgs(args, fieldDef)(skipVariableValidation)
+                                            case Some(opDef) => validateArgs(args, fieldDef)(validateVariable(opDef))
                                     ).mapN((_, _) => selectionSet)
 
                                     val fieldType: NamedType = NamedType(fieldDef.`type`.name)
@@ -240,15 +244,18 @@ object DocumentValidator:
 
         val validatedDirectives = validateDirectives(varDef.directives, EDL.VARIABLE_DEFINITION)
 
-        // val validatedDefaultValue = ctx.typeDef(varDef.`type`.name) match
-        //     case Some(typeDef) => varDef.defaultValue.map(validateValue(_, typeDef)).sequence
-        //     case None          => None.valid
+        val validatedDefaultValue =
+            varDef.defaultValue.traverse(
+                validateValue(_, varDef.`type`)((variable, _) =>
+                    InvalidLocation(variable.name, Some("Variable cannot be used as a default value")).invalidNec
+                )
+            )
 
         (
             validatedVariableTypes,
-            validatedDirectives
-            //   validatedDefaultValue
-        ).mapN((_, _) => varDef)
+            validatedDirectives,
+            validatedDefaultValue
+        ).mapN((_, _, _) => varDef)
     end validateVariableDefinition
 
     private def validateVariableDefinitions(
@@ -291,26 +298,19 @@ object DocumentValidator:
     ): Validated[OperationDefinition] =
         import ctx.given
 
-        // val opDefReqs = findOpDefReqs(opDef, fragDefReqs)
         val opDefReqs = ctx.getVarReqs(opDef.name).getOrElse(Set.empty[Variable]).map(_.name)
 
         val validatedVariableDefs = validateVariableDefinitions(opDef.variableDefinitions, opDefReqs)
-
         val validatedSelectionSets = ctx.getOpTypeDef(opDef.operationType) match
             case Some(typeDef: ObjectTypeDefinition) =>
                 validateSelectionSet(opDef.selectionSet.toList, NamedType(typeDef.name), Some(opDef))
             case _ => MissingDefinition(Name("")).invalidNec // TODO: Need to handle non named type defs somehow
-
         val validatedDirectives = opDef.operationType match
             case Query        => validateDirectives(opDef.directives, EDL.QUERY)
             case Mutation     => validateDirectives(opDef.directives, EDL.MUTATION)
             case Subscription => validateDirectives(opDef.directives, EDL.SUBSCRIPTION)
 
-        (
-            validatedVariableDefs,
-            validatedSelectionSets,
-            validatedDirectives
-        ).mapN((_, _, _) => opDef)
+        (validatedDirectives combine validatedVariableDefs).andThen(_ => validatedSelectionSets).map(_ => opDef)
     end validateOperationDefinition
 
     private def validateOperationDefinitions(opDefs: List[OperationDefinition])(using

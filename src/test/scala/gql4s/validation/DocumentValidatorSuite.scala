@@ -12,7 +12,6 @@ import DocumentValidator.*
 import errors.GqlError.*
 import munit.FunSuite
 import parsing.*
-// import GqlError.*
 import parsing.Type.*
 
 class DocumentValidationSuite extends FunSuite:
@@ -622,7 +621,7 @@ class DocumentValidationSuite extends FunSuite:
         }
         """
         executableDocument.parse(doc2) match
-            case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
+            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx).isValid))
             case _               => fail("failed to parse doc2")
     }
 
@@ -645,7 +644,7 @@ class DocumentValidationSuite extends FunSuite:
         }
         """
         executableDocument.parse(doc1) match
-            case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
+            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx).isValid))
             case _               => fail("failed to parse doc1")
 
         val doc2 = """
@@ -955,5 +954,42 @@ class DocumentValidationSuite extends FunSuite:
                 )
                 assertEquals(clue(actualErrs), expectedErrs)
             case _ => fail("failed to parse doc1")
+    }
+
+    test("scalar values must be the correct type") {
+        val doc1 = """
+        fragment DogFragment on Dog {
+            isHouseTrained(atOtherHomes: $houseTrained)
+        }
+
+        query TestQuery($houseTrained: Boolean) {
+            testInt(x: 42)
+            testFloat(x: 42.0)
+            testBoolean(x: true)
+            findDog(complex: { name: { first: "Oliver", last: "Winks" }, owner: "Me" }) {
+                ...DogFragment
+            }
+        }
+        """
+        executableDocument.parse(doc1) match
+            case Right(_ -> doc) =>
+                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
+                val expectedErrs = List()
+                assertEquals(clue(actualErrs), clue(expectedErrs))
+            case _ => fail("failed to parse doc1")
+
+        // val doc2 = """
+        // {
+        //     query DoThing($xx: Boolean) {
+        //         testBoolean(x: $xx)
+        //     }
+        // }
+        // """
+        // executableDocument.parse(doc2) match
+        //     case Right(_ -> doc) =>
+        //         val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
+        //         val expectedErrs = List()
+        //         assertEquals(clue(actualErrs), clue(expectedErrs))
+        //     case _ => fail("failed to parse doc1")
     }
 end DocumentValidationSuite
