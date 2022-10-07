@@ -7,10 +7,10 @@ package gql4s
 import munit.FunSuite
 
 class DocumentParserSuite extends FunSuite:
-  test("definitions") {
-    assert(1 == 1)
-  }
+    test("definitions") {
+        assert(1 == 1)
+    }
 
-  test("documents") {
-    assert(1 == 1)
-  }
+    test("documents") {
+        assert(1 == 1)
+    }

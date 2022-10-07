@@ -9,67 +9,78 @@ import parsing.*
 import parsing.Type.*
 
 enum GqlError:
-    case MissingOperationTypeDefinition(opType: OperationType)
-    case MissingTypeDefinition(namedType: NamedType)
-    case MissingFragmentDefinition(fragName: Name)
-    case MissingField(fieldName: Name, parentType: NamedType)
-    case MissingFields(tpe: NamedType)
-    case MissingSelection(fieldName: Name, parentType: NamedType)
-    case MissingArgumentDefinition(argName: Name, fieldName: Name, parentType: NamedType)
-    case MissingArgument(argName: Name, fieldName: Name, parentType: NamedType)
-    case MissingInputObjectTypeDefinition(typeName: Name)
-    case MissingVariable(varName: Name)
-    case MissingUnionMember(tpe: UnionTypeDefinition)
-    case MissingEnumValue(tpe: EnumTypeDefinition)
-    case IllegalSelection(fieldName: Name, namedType: NamedType)
-    case IllegalType(tpe: Type, message: Option[String] = None)
+    // Name errors
     case IllegalName(name: Name)
-    // case InvalidType(tpe: Type)
-    // TODO: Should I rename this to InvalidReturnType or something
-    case InvalidImplementation(tpe: Type)
-    case DuplicateArgument(argName: Name, fieldName: Name, namedType: NamedType)
-    case DuplicateFragmentDefinition(fragName: Name)
-    case DuplicateOperationDefinition(opName: Name)
-    case DuplicateField(fieldName: Name)
-    case DuplicateVariable(varName: Name)
-    case DuplicateInterface(interface: Name)
-    case DuplicateValue(value: Name)
-    case FragmentContainsCycles(fragName: Name)
-    case InputObjectContainsCycles(inputObjName: Name)
-    case MultipleAnonymousQueries
-    case AnonymousQueryNotAlone
-    case SubscriptionHasMultipleRoots(subName: Option[Name])
-    case UnusedFragment(fragName: Name)
-    case UnusedVariable(varName: Name)
-    case NonImplementedInterface(interface: NamedType)
-    case TypeMismatch(expected: Type, actual: Type)
-    case SelfImplementation(tpe: NamedType)
-    case CycleDetected(cycle: Name, context: Option[String] = None)
-    // case ContainsCycles(name: Name)
 
-    case StructureEmpty(context: Option[String] = None)
-    case MissingName(name: Name, context: Option[String] = None)
-    case MissingNames(names: List[Name], context: Option[String] = None)
-    case MissingImplementations(parent: Name, missing: List[Name], context: Option[String] = None)
-    case MissingArgument2(name: Name, context: Option[String] = None)
-    case MissingField2(name: Name, parentType: NamedType, context: Option[String] = None)
-    case MissingSelection2(fieldName: Name, parentType: NamedType, context: Option[String] = None)
-    case MissingVariable2(name: Name, context: Option[String] = None)
-    case MissingVariableDefinition(name: Name, context: Option[String] = None)
-    case MissingDefinition(name: Name, context: Option[String] = None)
-    case UnusedDefinition(name: Name, context: Option[String] = None)
-    case DuplicateName(name: Name, context: Option[String] = None)
-    case InvalidName(name: Name, context: Option[String] = None)
-    case InvalidType(`type`: Type, context: Option[String] = None)
-    case InvalidNamedType(name: Name, context: Option[String] = None)
-    case InvalidTypeDef(typeDef: TypeDefinition, context: Option[String] = None)
-    case InvalidFragment(name: Name, context: Option[String] = None)
-    case InvalidSelection(fieldName: Name, namedType: NamedType, context: Option[String] = None)
-    case InvalidLocation(name: Name, context: Option[String] = None)
-    case CyclesDetected(cycle: List[Name], context: Option[String] = None)
-    case OperationDefinitionError(context: Option[String] = None)
-    case SubscriptionHasMultipleRoots2(subName: Option[Name], context: Option[String] = None)
-    case TypeMismatch2(found: Value, expected: Type, context: Option[String] = None)
-    case NullValueFound(name: Name, context: Option[String] = None)
+    // Type errors
+    case NonInputType(`type`: Type)
+    case NonOutputType(`type`: Type)
+    case NonObjectType(`type`: Type)
+    case TypeNotInvariant(`type`: Type, other: Type)
+    case TypeNotCovariant(`type`: Type, other: Type)
+    case TypeMismatch(found: Value, expected: Type)
+    case IllegalInputType(`type`: Type)
 
-    case TestError
+    // Field errors
+    case NoFields(typeDef: Name)
+    case FieldDefinitionMissing(missingFieldName: Name, onType: Name)
+    case FieldMissing(typeDef: Name, missingFieldName: Name)
+    case DuplicateFields(fields: List[Name])
+
+    // Fragment errors
+    case FragmentDefinitionUnused(fragDef: Name)
+    case FragmentDefinitionMissing(frag: Name)
+    case FragmentDefinitionHasCyclicalDependency(cycles: List[Name])
+    case FragmentDefinitionHasIllegalType(onTypeDef: Name)
+    case FragmentDefinitionHasMissingType(missingType: Name)
+    case FragmentUsedOnWrongType(`type`: Name, expected: Name)
+    case DuplicateFragmentDefinitions(fragDefs: List[Name])
+
+    // Interface errors
+    case InterfaceDefinitionImplementsSelf(typeDef: Name)
+    case InterfaceDefinitionMissing(`type`: Name)
+    case InterfaceImplementationMissing(typeDef: Name, missingImpl: Name)
+    case DuplicateInterfaceImpls(impls: List[Name])
+
+    // Input Object errors
+    case InputObjectTypeDefinitionHasCyclicalDependency(cycles: List[Name])
+    case InputObjectFieldRequired(requiredFieldName: Name, typeDef: Name)
+    case InputObjectFieldMissing(missingFieldName: Name, typeDef: Name)
+
+    // Variable & argument errors
+    case VariableDefinitionMissing(name: Name)
+    case VariableUnused(name: Name)
+    case NullValueFound(valueType: Name)
+    case IllegalUseOfVariableAsDefaultValue(varName: Name)
+    case InputValueDefinitionMissing(typeDef: Name)
+    case RequiredArgumentMissing(arg: Name, `def`: Name)
+    case ArgumentCannotBeRequired(fieldDef: Name, arg: Name)
+    case DuplicateArguments(args: List[Name])
+    case DuplicateVariables(vars: List[Name])
+
+    // Selection set errors
+    case SelectionSetOnNonObjectLikeType(field: Name, parentType: Type)
+    case SelectionSetExpected(field: Name, parentType: Type)
+
+    // Operation errors
+    case OperationTypeMissingTypeDefinition(opType: OperationType)
+    case MultipleAnonOperationDefinitions
+    case AnonOperationDefinitionNotAlone
+    case DuplicateOperationDefinitions(opDefs: List[Name])
+
+    // Directive errors
+    case DirectiveDefinitionHasCyclicalDependency(cycles: List[Name])
+    case DirectiveDefinitionMissing(dirDef: Name)
+    case IllegalDirectiveLocation(dirDef: Name, location: DirectiveLocation)
+    case DuplicateDirectives(dirs: List[Name])
+
+    // Union type errors
+    case NoUnionMembers(unionTypeDef: Name)
+    case DuplicateUnionMembers(members: List[Name])
+
+    // Enum type errors
+    case NoEnumValues(enumTypeDef: Name)
+    case DuplicateEnumValues(values: List[Name])
+
+    // Subscription errors
+    case SubscriptionHasMultipleRoots(opDef: Name)

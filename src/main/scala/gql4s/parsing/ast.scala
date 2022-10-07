@@ -124,7 +124,7 @@ enum Value:
 case class Argument(name: Name, value: Value) extends HasName
 
 // Directives
-case class Directive(name: Name, arguments: List[Argument])
+case class Directive(name: Name, arguments: List[Argument]) extends HasName
 
 // Fragments
 case class FragmentDefinition(

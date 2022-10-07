@@ -23,13 +23,13 @@ class SchemaParserSuite extends FunSuite:
     """
 
         val res2 = ScalarTypeDefinition(
-          Name("UUID"),
-          List(
-            Directive(
-              Name("specifiedBy"),
-              List(Argument(Name("url"), StringValue("https://tools.ietf.org/html/rfc4122")))
+            Name("UUID"),
+            List(
+                Directive(
+                    Name("specifiedBy"),
+                    List(Argument(Name("url"), StringValue("https://tools.ietf.org/html/rfc4122")))
+                )
             )
-          )
         )
 
         val test3 = "extend scalar Int @skip"
@@ -47,19 +47,19 @@ class SchemaParserSuite extends FunSuite:
       picture(size: Int!): Url
     }"""
         val res1 = ObjectTypeDefinition(
-          Name("Person"),
-          Nil,
-          Nil,
-          List(
-            FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil),
-            FieldDefinition(Name("age"), Nil, NonNullType(NamedType(Name("Int"))), Nil),
-            FieldDefinition(
-              Name("picture"),
-              List(InputValueDefinition(Name("size"), NonNullType(NamedType(Name("Int"))), None, Nil)),
-              NamedType(Name("Url")),
-              Nil
+            Name("Person"),
+            Nil,
+            Nil,
+            List(
+                FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil),
+                FieldDefinition(Name("age"), Nil, NonNullType(NamedType(Name("Int"))), Nil),
+                FieldDefinition(
+                    Name("picture"),
+                    List(InputValueDefinition(Name("size"), NonNullType(NamedType(Name("Int"))), None, Nil)),
+                    NamedType(Name("Url")),
+                    Nil
+                )
             )
-          )
         )
 
         val test2 = """type Business implements NamedEntity & ValuedEntity {
@@ -68,24 +68,24 @@ class SchemaParserSuite extends FunSuite:
       employeeCount: Int
     }"""
         val res2 = ObjectTypeDefinition(
-          Name("Business"),
-          List(NamedType(Name("NamedEntity")), NamedType(Name("ValuedEntity"))),
-          Nil,
-          List(
-            FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil),
-            FieldDefinition(Name("value"), Nil, NamedType(Name("Int")), Nil),
-            FieldDefinition(Name("employeeCount"), Nil, NamedType(Name("Int")), Nil)
-          )
+            Name("Business"),
+            List(NamedType(Name("NamedEntity")), NamedType(Name("ValuedEntity"))),
+            Nil,
+            List(
+                FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil),
+                FieldDefinition(Name("value"), Nil, NamedType(Name("Int")), Nil),
+                FieldDefinition(Name("employeeCount"), Nil, NamedType(Name("Int")), Nil)
+            )
         )
 
         val test3 = """extend type Address implements HasPostcode {
       postcode: String!
     }"""
         val res3 = ObjectTypeExtension(
-          Name("Address"),
-          List(NamedType(Name("HasPostcode"))),
-          Nil,
-          List(FieldDefinition(Name("postcode"), Nil, NonNullType(NamedType(Name("String"))), Nil))
+            Name("Address"),
+            List(NamedType(Name("HasPostcode"))),
+            Nil,
+            List(FieldDefinition(Name("postcode"), Nil, NonNullType(NamedType(Name("String"))), Nil))
         )
 
         assert(clue(objectTypeDefinition.parse(test1)) == Right("", res1))
@@ -98,10 +98,10 @@ class SchemaParserSuite extends FunSuite:
       name: String
     }"""
         val res1 = InterfaceTypeDefinition(
-          Name("NamedEntity"),
-          Nil,
-          Nil,
-          List(FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil))
+            Name("NamedEntity"),
+            Nil,
+            Nil,
+            List(FieldDefinition(Name("name"), Nil, NamedType(Name("String")), Nil))
         )
 
         val test2 = """interface Resource implements Node {
@@ -109,23 +109,23 @@ class SchemaParserSuite extends FunSuite:
       url: String
     }"""
         val res2 = InterfaceTypeDefinition(
-          Name("Resource"),
-          List(NamedType(Name("Node"))),
-          Nil,
-          List(
-            FieldDefinition(Name("id"), Nil, NonNullType(NamedType(Name("ID"))), Nil),
-            FieldDefinition(Name("url"), Nil, NamedType(Name("String")), Nil)
-          )
+            Name("Resource"),
+            List(NamedType(Name("Node"))),
+            Nil,
+            List(
+                FieldDefinition(Name("id"), Nil, NonNullType(NamedType(Name("ID"))), Nil),
+                FieldDefinition(Name("url"), Nil, NamedType(Name("String")), Nil)
+            )
         )
 
         val test3 = """extend interface NamedEntity {
       nickname: String
     }"""
         val res3 = InterfaceTypeExtension(
-          Name("NamedEntity"),
-          Nil,
-          Nil,
-          List(FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil))
+            Name("NamedEntity"),
+            Nil,
+            Nil,
+            List(FieldDefinition(Name("nickname"), Nil, NamedType(Name("String")), Nil))
         )
 
         assert(clue(interfaceTypeDefinition.parse(test1)) == Right("", res1))
@@ -136,18 +136,18 @@ class SchemaParserSuite extends FunSuite:
     test("unions") {
         val test1 = "union DogOrFish = Dog | Fish"
         val test1Res = UnionTypeDefinition(
-          Name("DogOrFish"),
-          Nil,
-          List(NamedType(Name("Dog")), NamedType(Name("Fish")))
+            Name("DogOrFish"),
+            Nil,
+            List(NamedType(Name("Dog")), NamedType(Name("Fish")))
         )
 
         val test2 = """union SearchResult =
       | Photo
       | Person"""
         val test2Res = UnionTypeDefinition(
-          Name("SearchResult"),
-          Nil,
-          List(NamedType(Name("Photo")), NamedType(Name("Person")))
+            Name("SearchResult"),
+            Nil,
+            List(NamedType(Name("Photo")), NamedType(Name("Person")))
         )
 
         val test3    = """extend union DogFish = Dog"""
@@ -166,14 +166,14 @@ class SchemaParserSuite extends FunSuite:
       WEST
     }"""
         val test1Res = EnumTypeDefinition(
-          Name("Direction"),
-          Nil,
-          List(
-            EnumValueDefinition(EnumValue(Name("NORTH")), Nil),
-            EnumValueDefinition(EnumValue(Name("EAST")), Nil),
-            EnumValueDefinition(EnumValue(Name("SOUTH")), Nil),
-            EnumValueDefinition(EnumValue(Name("WEST")), Nil)
-          )
+            Name("Direction"),
+            Nil,
+            List(
+                EnumValueDefinition(EnumValue(Name("NORTH")), Nil),
+                EnumValueDefinition(EnumValue(Name("EAST")), Nil),
+                EnumValueDefinition(EnumValue(Name("SOUTH")), Nil),
+                EnumValueDefinition(EnumValue(Name("WEST")), Nil)
+            )
         )
 
         val test2 = """extend enum Direction {
@@ -183,14 +183,14 @@ class SchemaParserSuite extends FunSuite:
       WEST
     }"""
         val test2Res = EnumTypeExtension(
-          Name("Direction"),
-          Nil,
-          List(
-            EnumValueDefinition(EnumValue(Name("NORTH")), Nil),
-            EnumValueDefinition(EnumValue(Name("EAST")), Nil),
-            EnumValueDefinition(EnumValue(Name("SOUTH")), Nil),
-            EnumValueDefinition(EnumValue(Name("WEST")), Nil)
-          )
+            Name("Direction"),
+            Nil,
+            List(
+                EnumValueDefinition(EnumValue(Name("NORTH")), Nil),
+                EnumValueDefinition(EnumValue(Name("EAST")), Nil),
+                EnumValueDefinition(EnumValue(Name("SOUTH")), Nil),
+                EnumValueDefinition(EnumValue(Name("WEST")), Nil)
+            )
         )
 
         assert(clue(enumTypeDefinition.parse(test1)) == Right("", test1Res))
@@ -203,41 +203,41 @@ class SchemaParserSuite extends FunSuite:
       y: Float
     }"""
         val test1Res = InputObjectTypeDefinition(
-          Name("Point2D"),
-          Nil,
-          List(
-            InputValueDefinition(Name("x"), NamedType(Name("Float")), None, Nil),
-            InputValueDefinition(Name("y"), NamedType(Name("Float")), None, Nil)
-          )
+            Name("Point2D"),
+            Nil,
+            List(
+                InputValueDefinition(Name("x"), NamedType(Name("Float")), None, Nil),
+                InputValueDefinition(Name("y"), NamedType(Name("Float")), None, Nil)
+            )
         )
         val test2 = """input Example {
       self: [Example!]!
       value: String
     }"""
         val test2Res = InputObjectTypeDefinition(
-          Name("Example"),
-          Nil,
-          List(
-            InputValueDefinition(
-              Name("self"),
-              NonNullType(ListType(NonNullType(NamedType(Name("Example"))))),
-              None,
-              Nil
-            ),
-            InputValueDefinition(Name("value"), NamedType(Name("String")), None, Nil)
-          )
+            Name("Example"),
+            Nil,
+            List(
+                InputValueDefinition(
+                    Name("self"),
+                    NonNullType(ListType(NonNullType(NamedType(Name("Example"))))),
+                    None,
+                    Nil
+                ),
+                InputValueDefinition(Name("value"), NamedType(Name("String")), None, Nil)
+            )
         )
         val test3 = """extend input Point2D {
       x: Float
       y: Float
     }"""
         val test3Res = InputObjectTypeExtension(
-          Name("Point2D"),
-          Nil,
-          List(
-            InputValueDefinition(Name("x"), NamedType(Name("Float")), None, Nil),
-            InputValueDefinition(Name("y"), NamedType(Name("Float")), None, Nil)
-          )
+            Name("Point2D"),
+            Nil,
+            List(
+                InputValueDefinition(Name("x"), NamedType(Name("Float")), None, Nil),
+                InputValueDefinition(Name("y"), NamedType(Name("Float")), None, Nil)
+            )
         )
 
         assert(clue(inputObjectTypeDefinition.parse(test1)) == Right("", test1Res))
@@ -248,42 +248,42 @@ class SchemaParserSuite extends FunSuite:
     test("directives") {
         val test1 = "directive @example on FIELD"
         val test1Res = DirectiveDefinition(
-          Name("example"),
-          Nil,
-          false,
-          List(ExecutableDirectiveLocation.FIELD)
+            Name("example"),
+            Nil,
+            false,
+            List(ExecutableDirectiveLocation.FIELD)
         )
 
         val test2 = "directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT"
         val test2Res = DirectiveDefinition(
-          Name("skip"),
-          List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
-          false,
-          List(
-            ExecutableDirectiveLocation.FIELD,
-            ExecutableDirectiveLocation.FRAGMENT_SPREAD,
-            ExecutableDirectiveLocation.INLINE_FRAGMENT
-          )
+            Name("skip"),
+            List(InputValueDefinition(Name("if"), NonNullType(NamedType(Name("Boolean"))), None, Nil)),
+            false,
+            List(
+                ExecutableDirectiveLocation.FIELD,
+                ExecutableDirectiveLocation.FRAGMENT_SPREAD,
+                ExecutableDirectiveLocation.INLINE_FRAGMENT
+            )
         )
 
         val test3 = """directive @deprecated(
       reason: String = "No longer supported"
     ) on FIELD_DEFINITION | ENUM_VALUE"""
         val test3Res = DirectiveDefinition(
-          Name("deprecated"),
-          List(
-            InputValueDefinition(
-              Name("reason"),
-              NamedType(Name("String")),
-              Some(StringValue("No longer supported")),
-              Nil
+            Name("deprecated"),
+            List(
+                InputValueDefinition(
+                    Name("reason"),
+                    NamedType(Name("String")),
+                    Some(StringValue("No longer supported")),
+                    Nil
+                )
+            ),
+            false,
+            List(
+                TypeSystemDirectiveLocation.FIELD_DEFINITION,
+                TypeSystemDirectiveLocation.ENUM_VALUE
             )
-          ),
-          false,
-          List(
-            TypeSystemDirectiveLocation.FIELD_DEFINITION,
-            TypeSystemDirectiveLocation.ENUM_VALUE
-          )
         )
 
         assert(clue(directiveDefinition.parse(test1)) == Right("", test1Res))
@@ -297,11 +297,11 @@ class SchemaParserSuite extends FunSuite:
       mutation: MyMutationRootType
     }"""
         val test1Res = SchemaDefinition(
-          Nil,
-          List(
-            RootOperationTypeDefinition(OperationType.Query, NamedType(Name("MyQueryRootType"))),
-            RootOperationTypeDefinition(OperationType.Mutation, NamedType(Name("MyMutationRootType")))
-          )
+            Nil,
+            List(
+                RootOperationTypeDefinition(OperationType.Query, NamedType(Name("MyQueryRootType"))),
+                RootOperationTypeDefinition(OperationType.Mutation, NamedType(Name("MyMutationRootType")))
+            )
         )
 
         val test2 = """extend schema {
@@ -309,11 +309,11 @@ class SchemaParserSuite extends FunSuite:
       mutation: MyMutationRootType
     }"""
         val test2Res = SchemaExtension(
-          Nil,
-          List(
-            RootOperationTypeDefinition(OperationType.Query, NamedType(Name("MyQueryRootType"))),
-            RootOperationTypeDefinition(OperationType.Mutation, NamedType(Name("MyMutationRootType")))
-          )
+            Nil,
+            List(
+                RootOperationTypeDefinition(OperationType.Query, NamedType(Name("MyQueryRootType"))),
+                RootOperationTypeDefinition(OperationType.Mutation, NamedType(Name("MyMutationRootType")))
+            )
         )
 
         assert(clue(schemaDefinition.parse(test1)) == Right("", test1Res))

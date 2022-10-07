@@ -21,48 +21,40 @@ import parsing.Value.*
 import validation.Topo.*
 
 object SchemaValidator:
-    def validateNotEmpty[T](ts: List[T]): Validated[List[T]] =
-        if ts.isEmpty then StructureEmpty().invalidNec
-        else ts.validNec
-
     def validateName(n: Name): Validated[Name] =
-        if n.text.startsWith("__") then InvalidName(n).invalidNec else n.validNec
+        if n.text.startsWith("__") then IllegalName(n).invalidNec else n.validNec
 
-    def validateObjLikeTypeExists(name: Name)(using ctx: SchemaContext): Validated[ObjectLikeTypeDefinition] =
-        ctx.getTypeDef(name) match
-            case Some(typeDef: (ObjectTypeDefinition | InterfaceTypeDefinition)) => typeDef.validNec
-            case _                                                               => MissingDefinition(name).invalidNec
+    def validateInterfaceTypeDefExists(`type`: NamedType)(using
+        ctx: SchemaContext
+    ): Validated[InterfaceTypeDefinition] =
+        ctx.getTypeDef(`type`.name) match
+            case Some(typeDef: InterfaceTypeDefinition) => typeDef.validNec
+            case _                                      => InterfaceDefinitionMissing(`type`.name).invalidNec
 
-    def validateType(t: Type, test: Type => Boolean): Validated[Type] =
-        if test(t) then t.validNec else InvalidType(t).invalidNec
-
-    def validateNamedTypes[T <: HasName](ts: List[T], validate: Name => Boolean): Validated[List[T]] =
-        ts
-            .traverse { t =>
-                validate(t.name) match
-                    case true  => t.validNec
-                    case false => InvalidNamedType(t.name).invalidNec
-            }
-
-    def validateSelfImplementation[T <: HasName & HasInterfaces](t: T): Validated[T] =
-        if t.interfaces.exists(_.name == t.name)
-        then SelfImplementation(NamedType(t.name)).invalidNec
-        else t.validNec
+    def validateSelfImplementation(typeDef: InterfaceTypeDefinition): Validated[InterfaceTypeDefinition] =
+        if typeDef.interfaces.exists(_.name == typeDef.name) then
+            InterfaceDefinitionImplementsSelf(typeDef.name).invalidNec
+        else typeDef.validNec
 
     /** checks whether {@a} declares that it implements all interfaces that {@b} implements. */
-    def validateDeclaredImplementations[T <: HasName & HasInterfaces](a: T, b: T): Validated[T] =
-        val aInterfaceSet = a.interfaces.map(_.name).toSet
-        val bInterfaceSet = b.interfaces.map(_.name).toSet
+    def validateDeclaredImplementations(
+        a: ObjectLikeTypeDefinition,
+        b: InterfaceTypeDefinition
+    ): Validated[ObjectLikeTypeDefinition] =
+        val aInterfaceSet = a.interfaces.toSet
+        val bInterfaceSet = b.interfaces.toSet
         if bInterfaceSet subsetOf aInterfaceSet then a.validNec
         else
-            val missingImpls = (bInterfaceSet diff aInterfaceSet).toList
-            MissingImplementations(a.name, missingImpls).invalidNec
+            val missingImpls = (bInterfaceSet diff aInterfaceSet).toList.map(_.name)
+            missingImpls.traverse(name => InterfaceImplementationMissing(a.name, name).invalidNec).map(_ => a)
 
-    def validateInvariant[T <: HasType](a: T, b: T): Validated[T] =
+    def validateInvariant(a: InputValueDefinition, b: InputValueDefinition): Validated[InputValueDefinition] =
         if a.`type` == b.`type` then a.validNec
-        else InvalidType(a.`type`).invalidNec
+        else TypeNotInvariant(a.`type`, b.`type`).invalidNec
 
-    def validateImplementationArgs[T <: HasArgs](aField: T, bField: T)(using SchemaContext): Validated[T] =
+    def validateFieldHasArgs(aField: FieldDefinition, bField: FieldDefinition)(using
+        SchemaContext
+    ): Validated[FieldDefinition] =
         val aArgs = aField.arguments
         val bArgs = bField.arguments
 
@@ -72,32 +64,33 @@ object SchemaValidator:
 
         // aField must contain ALL args in bField
         // shared args must be the same type (invariant)
-        val validateImplementationArgs = bArgs.traverse { bArg =>
+        val validatedImplementationArgs = bArgs.traverse: bArg =>
             aArgs.find(_.name == bArg.name) match
-                case None       => MissingArgument2(bArg.name).invalidNec
+                case None       => RequiredArgumentMissing(bArg.name, aField.name).invalidNec
                 case Some(aArg) => validateInvariant(aArg, bArg)
-        }
 
         // aField can have more args than bField but they must not be required fields
-        val validateExtraArgs = extraArgs.traverse { arg =>
+        val validatedExtraArgs = extraArgs.traverse: arg =>
             arg.`type` match
-                case tpe: NonNullType => InvalidType(tpe).invalidNec
+                case tpe: NonNullType => ArgumentCannotBeRequired(aField.name, arg.name).invalidNec
                 case _                => arg.validNec
-        }
 
-        (validateImplementationArgs, validateExtraArgs).mapN((validArgs, validExtraArgs) => aField)
-    end validateImplementationArgs
+        (validatedImplementationArgs, validatedExtraArgs).mapN((validArgs, validExtraArgs) => aField)
+    end validateFieldHasArgs
 
-    def validateImplementationFields[T <: HasFields](a: T, b: T)(using SchemaContext): Validated[T] = b.fields
-        .traverse { bField =>
+    /** Validates that an implementing type contains all the fields of the types it implements
+      */
+    def validateImplementationFields(a: ObjectLikeTypeDefinition, b: InterfaceTypeDefinition)(using
+        SchemaContext
+    ): Validated[ObjectLikeTypeDefinition] = b.fields
+        .traverse: bField =>
             a.fields.find(_.name == bField.name) match
-                case None => MissingName(bField.name).invalidNec
+                case None => FieldMissing(a.name, bField.name).invalidNec
                 case Some(aField) =>
                     (
-                        validateImplementationArgs(aField, bField),
+                        validateFieldHasArgs(aField, bField),
                         validateCovariant(aField.`type`, bField.`type`)
                     ).mapN((validArgs, validReturnType) => aField)
-        }
         .map(_ => a)
 
     /** Checks whether the given type {@a} is a valid implementation of {@b}
@@ -106,12 +99,12 @@ object SchemaValidator:
       *
       * @param a
       *   The type we are checking correctly implements implementedType
-      * @param implementedType
+      * @param b
       *   The type that we're checking against
       */
-    def validateImplementation[T <: HasName & HasFields & HasInterfaces](a: T, b: T)(using
+    def validateImplementation(a: ObjectLikeTypeDefinition, b: InterfaceTypeDefinition)(using
         SchemaContext
-    ): Validated[T] =
+    ): Validated[ObjectLikeTypeDefinition] =
         (
             validateDeclaredImplementations(a, b),
             validateImplementationFields(a, b)
@@ -140,16 +133,16 @@ object SchemaValidator:
     def validateObjLike(typeDef: ObjectLikeTypeDefinition)(using SchemaContext): Validated[ObjectLikeTypeDefinition] =
         (
             // 3.6.1 Object like types must define one or more fields
-            validateNotEmpty(typeDef.fields),
+            if typeDef.fields.isEmpty then NoFields(typeDef.name).invalidNec else typeDef.validNec,
 
             // 3.6.2.1 Fields must have unique names within the Object type
-            validateUniqueName(typeDef.fields),
+            validateUniqueName(typeDef.fields)(DuplicateFields(_)),
 
             // 3.6.2.2 Field names must not start with `__`
             typeDef.fields.map(_.name).traverse(validateName),
 
             // 3.6.2.3 Fields must return an output type
-            typeDef.fields.map(_.`type`).traverse(validateType(_, isOutputType)),
+            typeDef.fields.map(_.`type`).traverse(validateOutputType),
 
             // 3.6.2.4.1
             typeDef.fields.flatMap(_.arguments).map(_.name).traverse(validateName),
@@ -158,20 +151,28 @@ object SchemaValidator:
             typeDef.fields
                 .flatMap(_.arguments)
                 .map(_.`type`)
-                .traverse(validateType(_, isInputType)),
+                .traverse(validateInputType),
 
-            // 3.6.3 An object like type may declare that it implements one or more unique interfaces.
-            //       If it's an interface type it may not implement itself
-            validateUniqueName(typeDef.interfaces),
-            validateSelfImplementation(typeDef),
+            // 3.7.3 extended interfaces must be unique
+            validateUniqueName(typeDef.interfaces)(DuplicateInterfaceImpls(_)),
 
-            // 3.6.4 An object type must be a super-set of all interfaces it implements
-            typeDef.interfaces
-                .map(_.name)
-                .traverse(validateObjLikeTypeExists)
-                .andThen(interfaces => interfaces.traverse(validateImplementation(typeDef, _))),
-            typeDef.fields.traverse(validateFieldDefinition)
-        ).mapN((_, _, _, _, _, _, _, _, _, _) => typeDef)
+            // 3.6.3 or 3.6.4
+            typeDef match
+                // 3.6.3 An interface may declare that it implements one or more interfaces.
+                //       However, an interface may not implement itself
+                case ifTypeDef: InterfaceTypeDefinition => validateSelfImplementation(ifTypeDef)
+
+                // 3.6.4 An object type must be a super-set of all interfaces it implements
+                case objTypeDef: ObjectTypeDefinition =>
+                    objTypeDef.interfaces
+                        .traverse(validateInterfaceTypeDefExists)
+                        .andThen(interfaces =>
+                            (
+                                interfaces.traverse(validateImplementation(objTypeDef, _)),
+                                objTypeDef.fields.traverse(validateFieldDefinition)
+                            ).mapN((_, _) => objTypeDef)
+                        )
+        ).mapN((_, _, _, _, _, _, _, _) => typeDef)
     end validateObjLike
 
     def validateObjTypeDef(typeDef: ObjectTypeDefinition)(using SchemaContext): Validated[ObjectTypeDefinition] =
@@ -191,11 +192,11 @@ object SchemaValidator:
     def validateUnionTypeDef(typeDef: UnionTypeDefinition)(using SchemaContext): Validated[UnionTypeDefinition] =
         (
             // 3.8.1 A union type must include one or more unique member types.
-            validateNotEmpty(typeDef.unionMemberTypes),
-            validateUniqueName(typeDef.unionMemberTypes),
+            if typeDef.unionMemberTypes.isEmpty then NoUnionMembers(typeDef.name).invalidNec else typeDef.validNec,
+            validateUniqueName(typeDef.unionMemberTypes)(DuplicateUnionMembers(_)),
 
             // 3.8.2 The member types of a union type must all be object base types
-            validateNamedTypes(typeDef.unionMemberTypes, isObjectType),
+            typeDef.unionMemberTypes.traverse(validateObjectType),
 
             // validate directives
             validateDirectives(typeDef.directives, TSDL.UNION)
@@ -204,35 +205,39 @@ object SchemaValidator:
     def validateEnumTypeDef(typeDef: EnumTypeDefinition)(using SchemaContext): Validated[EnumTypeDefinition] =
         (
             // 3.9.1 An Enum type must define one or more unique enum values.
-            validateNotEmpty(typeDef.values),
-            validateUniqueName(typeDef.values),
+            if typeDef.values.isEmpty then NoEnumValues(typeDef.name).invalidNec else typeDef.validNec,
+            validateUniqueName(typeDef.values)(DuplicateEnumValues(_)),
 
             // validate directives
             validateDirectives(typeDef.directives, TSDL.ENUM),
             validateDirectives(typeDef.values.flatMap(_.directives), TSDL.ENUM_VALUE)
         ).mapN((_, _, _, _) => typeDef)
 
+    def validateInputObjTypeDefs(using ctx: SchemaContext): Validated[List[Name]] =
+        ctx.inObjDeps.topo match
+            case NoCycles(order)   => order.validNec
+            case HasCycles(cycles) => InputObjectTypeDefinitionHasCyclicalDependency(cycles).invalidNec
+
     def validateInputObjTypeDef(typeDef: InputObjectTypeDefinition)(using
         SchemaContext
     ): Validated[InputObjectTypeDefinition] =
         (
             // 3.10.1 An Input Object type must define one or more input args (fields)
-            validateNotEmpty(typeDef.fields),
+            if typeDef.fields.isEmpty then NoFields(typeDef.name).invalidNec else typeDef.validNec,
 
             // 3.10.2.1 Arguments (fields) must have unique names within the Object type
-            validateUniqueName(typeDef.fields),
+            validateUniqueName(typeDef.fields)(DuplicateFields(_)),
 
             // 3.10.2.2 Argument (Field) names must not start with `__`
             typeDef.fields.map(_.name).traverse(validateName),
 
             // 3.10.2.3 Arguments (Fields) must return an output type
-            typeDef.fields.map(_.`type`).traverse(validateType(_, isInputType)),
+            typeDef.fields.map(_.`type`).traverse(validateInputType),
 
             // validate directives
             validateDirectives(typeDef.directives, TSDL.INPUT_OBJECT),
             validateDirectives(typeDef.fields.flatMap(_.directives), TSDL.INPUT_FIELD_DEFINITION)
-        )
-            .mapN((_, _, _, _, _, _) => typeDef)
+        ).mapN((_, _, _, _, _, _) => typeDef)
 
     def validateScalarTypeDefinition(typeDef: ScalarTypeDefinition)(using
         SchemaContext
@@ -250,17 +255,12 @@ object SchemaValidator:
                 (
                     dirDefs.map(_.name).traverse(validateName),
                     dirDefs.flatMap(_.arguments).map(_.name).traverse(validateName),
-                    dirDefs.flatMap(_.arguments).map(_.`type`).traverse(validateType(_, isInputType))
+                    dirDefs.flatMap(_.arguments).map(_.`type`).traverse(validateInputType)
                 ).mapN((_, _, _) => dirDefs)
-            case HasCycles(cycles) => CyclesDetected(cycles).invalidNec
+            case HasCycles(cycles) => DirectiveDefinitionHasCyclicalDependency(cycles).invalidNec
 
     def validate(schema: TypeSystemDocument): Validated[TypeSystemDocument] =
-        val ctx             = SchemaContext(schema)
-        given SchemaContext = ctx
-
-        val validatedInObjDefs = ctx.inObjDeps.topo match
-            case NoCycles(order)   => order.validNec
-            case HasCycles(cycles) => CyclesDetected(cycles).invalidNec
+        given ctx: SchemaContext = SchemaContext(schema)
 
         (
             validateDirectiveDefinitions(ctx.directiveDefs),
@@ -271,6 +271,6 @@ object SchemaValidator:
             ctx.unionTypeDefs.traverse(validateUnionTypeDef),
             ctx.enumTypeDefs.traverse(validateEnumTypeDef),
             ctx.inObjTypeDefs.traverse(validateInputObjTypeDef),
-            validatedInObjDefs
+            validateInputObjTypeDefs
         ).mapN((_, _, _, _, _, _, _, _, _) => schema)
 end SchemaValidator

@@ -207,21 +207,21 @@ val desc = (stringValue.? ~ __).void.with1
 
 // Type
 val typeDefinition = defer(
-  scalarTypeDefinition |
-      objectTypeDefinition |
-      interfaceTypeDefinition |
-      unionTypeDefinition |
-      enumTypeDefinition |
-      inputObjectTypeDefinition
+    scalarTypeDefinition |
+        objectTypeDefinition |
+        interfaceTypeDefinition |
+        unionTypeDefinition |
+        enumTypeDefinition |
+        inputObjectTypeDefinition
 )
 
 val typeExtension = defer(
-  scalarTypeExtension |
-      objectTypeExtension |
-      interfaceTypeExtension |
-      unionTypeExtension |
-      enumTypeExtension |
-      inputObjectTypeExtension
+    scalarTypeExtension |
+        objectTypeExtension |
+        interfaceTypeExtension |
+        unionTypeExtension |
+        enumTypeExtension |
+        inputObjectTypeExtension
 )
 
 // Schema

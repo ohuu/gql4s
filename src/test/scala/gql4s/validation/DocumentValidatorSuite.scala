@@ -5,20 +5,21 @@
 package gql4s
 package validation
 
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyChain as NEC, Chain}
+import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
 
-import DocumentValidator.*
+import validation.DocumentValidator.*
+import parsing.ExecutableDirectiveLocation as EDL
 import errors.GqlError.*
 import munit.FunSuite
 import parsing.*
 import parsing.Type.*
 
 class DocumentValidationSuite extends FunSuite:
-    val schemaCtx       = SchemaContext(schemaDoc)
-    given SchemaContext = schemaCtx
+    given schemaCtx: SchemaContext = SchemaContext(schemaDoc)
 
-    test("operation names must be unique") {
+    test("operation names must be unique"):
         // Operation names must be unique
         val doc1Str = """
         query getDogName {
@@ -35,10 +36,9 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
-        executableDocument.parse(doc1Str) match {
+        executableDocument.parse(doc1Str) match
             case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
             case _               => fail("failed to parse doc1")
-        }
 
         // Operation names must be uniqueu
         val doc2Str = """
@@ -57,14 +57,17 @@ class DocumentValidationSuite extends FunSuite:
 
         executableDocument.parse(doc2Str) match
             case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[DuplicateName])
-                val expectedErr = DuplicateName(Name("dogOperation"))
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            DuplicateOperationDefinitions(List(Name("dogOperation"))),
+                            OperationTypeMissingTypeDefinition(OperationType.Mutation)
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("anonymous operations must be singular") {
+    test("anonymous operations must be singular"):
         // There can only be one anonymous operation and it must be alone
         val doc1 = """
         {
@@ -94,14 +97,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[OperationDefinitionError])
-                val expectedErr = OperationDefinitionError(Some("Anonymous operation not alone"))
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(AnonOperationDefinitionNotAlone)
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("subscriptions should have a single root") {
+    test("subscriptions should have a single root"):
         val doc1 = """
         subscription sub {
             newMessage {
@@ -167,9 +170,8 @@ class DocumentValidationSuite extends FunSuite:
                 given Context = Context(schemaCtx, DocumentContext(doc))
                 assert(validateSubscriptionsHaveSingleRoot.isInvalid)
             case _ => fail("failed to parse doc4")
-    }
 
-    test("fields within selection sets must exist") {
+    test("fields within selection sets must exist"):
         val doc1 = """
         query {
             dog {
@@ -196,9 +198,8 @@ class DocumentValidationSuite extends FunSuite:
         executableDocument.parse(doc2) match
             case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
             case _               => fail("failed to parse doc2")
-    }
 
-    test("leaf nodes should not have selection sets") {
+    test("leaf nodes should not have selection sets"):
         val doc1 = """
             fragment scalarSelection on Dog {
                 barkVolume
@@ -227,14 +228,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[InvalidSelection])
-                val expectedErr = InvalidSelection(Name("barkVolume"), NamedType(Name("Dog")), None)
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(SelectionSetOnNonObjectLikeType(Name("barkVolume"), NamedType(Name("Dog"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("arguments") {
+    test("arguments must be defined"):
         val doc1 = """
         fragment argOnRequiredArg on Dog {
             doesKnowCommand(dogCommand: SIT)
@@ -257,66 +258,87 @@ class DocumentValidationSuite extends FunSuite:
 
         val doc2 = """
         fragment invalidArgName on Dog {
-            doesKnowCommand(command: CLEAN_UP_HOUSE)
+            isHouseTrained(atOtherHome: true)
         }
 
         {
-            ...invalidArgName
+            dog {
+                ...invalidArgName
+            }
         }
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val actualErrs = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(
-                    MissingDefinition(
-                        Name("command"),
-                        Some("in definition Name(doesKnowCommand)")
-                    ),
-                    MissingArgument2(Name("dogCommand"), None)
-                )
-                assertEquals(clue(actualErrs), clue(expectedErrs))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(InputValueDefinitionMissing(Name("atOtherHome")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
 
-        val doc3 = """
+    test("required arguments must be provided"):
+        val doc1 = """
+        fragment invalidArgName on Dog {
+            doesKnowCommand(command: CLEAN_UP_HOUSE)
+        }
+
+        {
+            dog {
+                ...invalidArgName
+            }
+        }
+        """
+        executableDocument.parse(doc1) match
+            case Right(_ -> doc) =>
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            InputValueDefinitionMissing(Name("command")),
+                            RequiredArgumentMissing(Name("dogCommand"), Name("doesKnowCommand"))
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
+            case _ => fail("failed to parse doc2")
+
+        val doc2 = """
+        query MyQuery {
+            multipleRequirements(x: 1337)
+        }
+        """
+        executableDocument.parse(doc2) match
+            case Right(_ -> doc) =>
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            RequiredArgumentMissing(Name("y"), Name("multipleRequirements"))
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
+            case _ => fail("failed to parse doc4")
+
+    test("arguments must not be duplicated"):
+        val doc1 = """
         fragment argOnRequiredArg on Dog {
             doesKnowCommand(dogCommand: SIT, dogCommand: SIT)
         }
 
         {
-            ...argOnRequiredArg
-        }
-        """
-        executableDocument.parse(doc3) match
-            case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[DuplicateName])
-                val expectedErr = DuplicateName(Name("dogCommand"))
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
-            case _ => fail("failed to parse doc3")
-
-        val doc4 = """
-        query MyQuery {
-            multipleRequirements(x: 1337)
-        }
-        """
-        executableDocument.parse(doc4) match
-            case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[MissingArgument2])
-                val expectedErr = MissingArgument2(Name("y"), None)
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
-            case _ => fail("failed to parse doc4")
-    }
-
-    test("fragment definitions should not be duplicated") {
-        val doc1 = """
-        {
             dog {
-                ...fragmentOne
-                ...fragmentTwo
+                ...argOnRequiredArg
             }
         }
+        """
+        executableDocument.parse(doc1) match
+            case Right(_ -> doc) =>
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateArguments(List(Name("dogCommand"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
+            case _ => fail("failed to parse doc3")
 
+    test("fragment definitions should not be duplicated"):
+        val doc1 = """
         fragment fragmentOne on Dog {
             name
         }
@@ -324,6 +346,13 @@ class DocumentValidationSuite extends FunSuite:
         fragment fragmentTwo on Dog {
             owner {
                 name
+            }
+        }
+
+        {
+            dog {
+                ...fragmentOne
+                ...fragmentTwo
             }
         }
         """
@@ -334,7 +363,7 @@ class DocumentValidationSuite extends FunSuite:
         val doc2 = """
         {
             dog {
-            ...fragmentOne
+                ...fragmentOne
             }
         }
 
@@ -350,14 +379,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[DuplicateName])
-                val expectedErr = DuplicateName(Name("fragmentOne"))
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateFragmentDefinitions(List(Name("fragmentOne"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("fragments should reference object like types that exist") {
+    test("fragments should reference object like types that exist"):
         val doc1 = """
         fragment correctType on Dog {
             name
@@ -412,17 +441,18 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val actualErrs = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(
-                    MissingField2(Name("name"), NamedType(Name("NotInSchema")), None),
-                    MissingDefinition(Name("NotInSchema"), None),
-                    InvalidFragment(Name("NotInSchema"))
-                )
-                assertEquals(clue(actualErrs), clue(expectedErrs))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            FieldDefinitionMissing(Name("name"), Name("NotInSchema")),
+                            FragmentDefinitionHasMissingType(Name("NotInSchema")),
+                            FragmentUsedOnWrongType(Name("Dog"), Name("NotInSchema"))
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("fragments must be used") {
+    test("fragments must be used"):
         val doc1 = """
         fragment nameFragment on Dog { # unused
             name
@@ -436,14 +466,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val errs        = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actualErr   = errs.find(_.isInstanceOf[UnusedDefinition])
-                val expectedErr = UnusedDefinition(Name("nameFragment"))
-                assertEquals(clue(actualErr), clue(Some(expectedErr)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(FragmentDefinitionUnused(Name("nameFragment")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("fragment spread must refer to a fragment definition that exists") {
+    test("fragment spread must refer to a fragment definition that exists"):
         val doc = """
         {
             dog {
@@ -453,14 +483,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.find(_.isInstanceOf[MissingDefinition])
-                val expected = MissingDefinition(Name("undefinedFragment"))
-                assertEquals(clue(actual), clue(Some(expected)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(FragmentDefinitionMissing(Name("undefinedFragment")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc")
-    }
 
-    test("fragment definitions must not contain cycles") {
+    test("fragment definitions must not contain cycles"):
         val doc1 = """
         {
             dog {
@@ -481,19 +511,21 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val errs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual = errs.filter(_.isInstanceOf[CyclesDetected])
-                val expected = CyclesDetected(
-                    List(
-                        Name("nameFragment"),
-                        Name("barkVolumeFragment")
-                    )
-                ) :: Nil
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            FragmentDefinitionHasCyclicalDependency(
+                                List(
+                                    Name("nameFragment"),
+                                    Name("barkVolumeFragment")
+                                )
+                            )
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc")
-    }
 
-    test("input objects fields must be defined") {
+    test("input objects fields must be defined"):
         val doc1 = """
         {
             findDog(complex: { name: { first: "Turner" }, owner: "Fido" }) {
@@ -501,6 +533,9 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
+        executableDocument.parse(doc1) match
+            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx)).isValid)
+            case _               => fail("failed to parse doc1")
 
         val doc2 = """
         {
@@ -509,6 +544,9 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
+        executableDocument.parse(doc2) match
+            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx)).isValid)
+            case _               => fail("failed to parse doc2")
 
         val doc3 = """
         {
@@ -517,28 +555,19 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
-
-        executableDocument.parse(doc1) match
-            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx)).isValid)
-            case _               => fail("failed to parse doc1")
-
-        executableDocument.parse(doc2) match
-            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx)).isValid)
-            case _               => fail("failed to parse doc2")
-
         executableDocument.parse(doc3) match
             case Right(_ -> doc) =>
-                val errs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual = errs.filter(_.isInstanceOf[MissingField2])
-                val expected = List(
-                    MissingField2(Name("favoriteCookieFlavor"), NamedType(Name("ComplexInput"))),
-                    MissingField2(Name("name"), NamedType(Name("ComplexInput")))
-                )
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            InputObjectFieldMissing(Name("favoriteCookieFlavor"), Name("ComplexInput")),
+                            InputObjectFieldRequired(Name("name"), Name("ComplexInput"))
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc3")
-    }
 
-    test("input object fields must be unique") {
+    test("input object fields must be unique"):
         val doc1 = """
         {
             findDog(complex: { name: { first: "fido" }, name: { first: "asdf" } }) {
@@ -546,6 +575,14 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
+        executableDocument.parse(doc1) match
+            case Right(_ -> doc) =>
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateFields(List(Name("name"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
+            case _ => fail("failed to parse doc1")
 
         val doc2 = """
         {
@@ -554,25 +591,16 @@ class DocumentValidationSuite extends FunSuite:
             }
         }
         """
-
-        executableDocument.parse(doc1) match
-            case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.find(_.isInstanceOf[DuplicateName])
-                val expected = DuplicateName(Name("name"))
-                assertEquals(clue(actual), clue(Some(expected)))
-            case _ => fail("failed to parse doc1")
-
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.find(_.isInstanceOf[DuplicateName])
-                val expected = DuplicateName(Name("first"))
-                assertEquals(clue(actual), clue(Some(expected)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateFields(List(Name("first"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("input object values must include required fields") {
+    test("input object values must include required fields"):
         val doc1 = """
         {
             findDog(complex: { owner: "Turner" }) {
@@ -582,14 +610,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.find(_.isInstanceOf[MissingField2])
-                val expected = MissingField2(Name("name"), NamedType(Name("ComplexInput")))
-                assertEquals(clue(actual), clue(Some(expected)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(InputObjectFieldRequired(Name("name"), Name("ComplexInput")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("variables must be unique") {
+    test("variables must be unique"):
         val doc1 = """
         query houseTrainedQuery($atOtherHomes: Boolean, $atOtherHomes: Boolean) {
             dog {
@@ -599,10 +627,11 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.find(_.isInstanceOf[DuplicateName])
-                val expected = DuplicateName(Name("atOtherHomes"))
-                assertEquals(clue(actual), clue(Some(expected)))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateVariables(List(Name("atOtherHomes"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
 
         val doc2 = """
@@ -623,9 +652,8 @@ class DocumentValidationSuite extends FunSuite:
         executableDocument.parse(doc2) match
             case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx).isValid))
             case _               => fail("failed to parse doc2")
-    }
 
-    test("variables must be an input type") {
+    test("variables must be an input type"):
         val doc1 = """
         query takesBoolean($atOtherHomes: Boolean) {
             dog {
@@ -666,20 +694,24 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual = errs.filter(_.isInstanceOf[InvalidType])
-                val expected =
-                    List(
-                        InvalidType(NamedType(Name("Cat"))),
-                        InvalidType(NonNullType(NamedType(Name("Dog")))),
-                        InvalidType(ListType(NamedType(Name("Pet")))),
-                        InvalidType(NamedType(Name("CatOrDog")))
-                    )
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs =
+                            NEC(
+                                VariableUnused(Name("cat")),
+                                NonInputType(NamedType(Name("Cat"))),
+                                VariableUnused(Name("dog")),
+                                NonInputType(NonNullType(NamedType(Name("Dog")))),
+                                VariableUnused(Name("pets")),
+                                NonInputType(ListType(NamedType(Name("Pet")))),
+                                VariableUnused(Name("catOrDog")),
+                                NonInputType(NamedType(Name("CatOrDog")))
+                            )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
-    }
 
-    test("variable references must be defined") {
+    test("variable references must be defined"):
         val doc1 = """
         query variableIsDefined($atOtherHomes: Boolean) {
             dog {
@@ -700,10 +732,11 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.filter(_.isInstanceOf[MissingVariable2])
-                val expected = List(MissingVariable2(Name("atOtherHomes")))
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(VariableDefinitionMissing(Name("atOtherHomes")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
 
         val doc3 = """
@@ -719,12 +752,12 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc3) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.filter(_.isInstanceOf[MissingVariable2])
-                val expected = List(MissingVariable2(Name("atOtherHomes")))
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(VariableDefinitionMissing(Name("atOtherHomes")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc3")
-    }
 
     test("all variables must be used") {
         val doc1 = """
@@ -736,14 +769,15 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val errs     = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val actual   = errs.filter(_.isInstanceOf[UnusedDefinition])
-                val expected = List(UnusedDefinition(Name("atOtherHomes")))
-                assertEquals(clue(actual), clue(expected))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(VariableUnused(Name("atOtherHomes")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
     }
 
-    test("fragment spread be assignable to the parent type") {
+    test("fragment spread be assignable to the parent type"):
         val doc1 = """
         fragment dogFragment on Dog {
             ... on Dog {
@@ -758,9 +792,7 @@ class DocumentValidationSuite extends FunSuite:
         }
         """
         executableDocument.parse(doc1) match
-            case Right(_ -> doc) =>
-                val errs = validate(doc, schemaCtx)
-                assert(clue(errs.isValid))
+            case Right(_ -> doc) => assert(clue(validate(doc, schemaCtx).isValid))
             case _ => fail("failed to parse doc1")
 
         val doc2 = """
@@ -778,9 +810,11 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc2) match
             case Right(_ -> doc) =>
-                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(InvalidFragment(Name("Cat")))
-                assertEquals(clue(actualErrs), clue(expectedErrs))
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(FragmentUsedOnWrongType(Name("Dog"), Name("Cat")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc2")
 
         val doc3 = """
@@ -873,9 +907,8 @@ class DocumentValidationSuite extends FunSuite:
         executableDocument.parse(doc6) match
             case Right(_ -> doc) => assert(validate(doc, schemaCtx).isInvalid)
             case _               => fail("failed to parse doc6")
-    }
 
-    test("directives must have a definition") {
+    test("directives must have a definition"):
         val doc1 = """
         query myQuery($someTest: Boolean!) {
             dog {
@@ -886,13 +919,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(MissingDefinition(Name("skips")))
-                assertEquals(clue(actualErrs), expectedErrs)
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DirectiveDefinitionMissing(Name("skips")))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("directives must be unique per location") {
+    test("directives must be unique per location"):
         val doc1 = """
         query myQuery($someTest: Boolean!) {
             dog {
@@ -902,13 +936,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(DuplicateName(Name("skip")))
-                assertEquals(clue(actualErrs), expectedErrs)
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(DuplicateDirectives(List(Name("skip"))))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("directives must be in the correct location") {
+    test("directives must be in the correct location"):
         val doc1 = """
         {
             dog {
@@ -918,13 +953,14 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(InvalidLocation(Name("deprecated")))
-                assertEquals(clue(actualErrs), expectedErrs)
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(IllegalDirectiveLocation(Name("deprecated"), EDL.FIELD))
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("directive arguments must be defined and unique and requied args must be provided") {
+    test("directive arguments must be defined and unique and requied args must be provided"):
         val doc1 = """
         query GetDogA {
             dog {
@@ -946,17 +982,18 @@ class DocumentValidationSuite extends FunSuite:
         """
         executableDocument.parse(doc1) match
             case Right(_ -> doc) =>
-                val actualErrs = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List(
-                    MissingDefinition(Name("y"), Some("in definition Name(myDir)")),
-                    DuplicateName(Name("x"), None),
-                    MissingArgument2(Name("x"), None)
-                )
-                assertEquals(clue(actualErrs), expectedErrs)
+                validate(doc, schemaCtx) match
+                    case Invalid(actualErrs) =>
+                        val expectedErrs = NEC(
+                            InputValueDefinitionMissing(Name("y")),
+                            DuplicateArguments(List(Name("x"))),
+                            RequiredArgumentMissing(Name("x"), Name("myDir"))
+                        )
+                        assertEquals(clue(actualErrs), expectedErrs)
+                    case Valid(_) => fail("expected to fail")
             case _ => fail("failed to parse doc1")
-    }
 
-    test("scalar values must be the correct type") {
+    test("scalar values must be the correct type"):
         val doc1 = """
         fragment DogFragment on Dog {
             isHouseTrained(atOtherHomes: $houseTrained)
@@ -972,24 +1009,15 @@ class DocumentValidationSuite extends FunSuite:
         }
         """
         executableDocument.parse(doc1) match
-            case Right(_ -> doc) =>
-                val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-                val expectedErrs = List()
-                assertEquals(clue(actualErrs), clue(expectedErrs))
+            case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
             case _ => fail("failed to parse doc1")
 
-        // val doc2 = """
-        // {
-        //     query DoThing($xx: Boolean) {
-        //         testBoolean(x: $xx)
-        //     }
-        // }
-        // """
-        // executableDocument.parse(doc2) match
-        //     case Right(_ -> doc) =>
-        //         val actualErrs   = validate(doc, schemaCtx).swap.map(_.toList).getOrElse(Nil)
-        //         val expectedErrs = List()
-        //         assertEquals(clue(actualErrs), clue(expectedErrs))
-        //     case _ => fail("failed to parse doc1")
-    }
+        val doc2 = """
+        query DoThing($xx: Boolean) {
+            testBoolean(x: $xx)
+        }
+        """
+        executableDocument.parse(doc2) match
+            case Right(_ -> doc) => assert(validate(doc, schemaCtx).isValid)
+            case _ => fail("failed to parse doc1")
 end DocumentValidationSuite

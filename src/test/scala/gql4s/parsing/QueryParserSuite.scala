@@ -57,14 +57,14 @@ class QueryParserSuite extends FunSuite:
         assert(clue(value.parse("\"\\u01dg\"")).isLeft)
         assert(clue(value.parse("\"\\u01dfa\"")) == Right("", StringValue("\\u01dfa")))
         assert(
-          clue(value.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
+            clue(value.parse("\"my name is Oli\"")) == Right("", StringValue("my name is Oli"))
         )
         assert(clue(value.parse("\"\\\"\"")) == Right("", StringValue("\\\"")))
         assert(
-          clue(value.parse("\"my name is \\\"Oli\\\"\"")) == Right(
-            "",
-            StringValue("my name is \\\"Oli\\\"")
-          )
+            clue(value.parse("\"my name is \\\"Oli\\\"\"")) == Right(
+                "",
+                StringValue("my name is \\\"Oli\\\"")
+            )
         )
         assert(clue(value.parse("\"\\u05AD\"")) == Right("", StringValue("\\u05AD")))
 
@@ -78,10 +78,10 @@ class QueryParserSuite extends FunSuite:
 
         // List Value
         val listTest = List(
-          "[]"       -> ("", ListValue(Nil)),
-          "[42]"     -> ("", ListValue(IntValue("42") :: Nil)),
-          "[42, 43]" -> ("", ListValue(IntValue("42") :: IntValue("43") :: Nil)),
-          "[[42]]"   -> ("", ListValue(ListValue(IntValue("42") :: Nil) :: Nil))
+            "[]"       -> ("", ListValue(Nil)),
+            "[42]"     -> ("", ListValue(IntValue("42") :: Nil)),
+            "[42, 43]" -> ("", ListValue(IntValue("42") :: IntValue("43") :: Nil)),
+            "[[42]]"   -> ("", ListValue(ListValue(IntValue("42") :: Nil) :: Nil))
         )
 
         assert(clue(value.parse(listTest(0)._1)) == Right(listTest(0)._2))
@@ -91,13 +91,13 @@ class QueryParserSuite extends FunSuite:
 
         // Object Value
         val objTest = List(
-          "{}" -> ("", ObjectValue(Nil)),
-          """{
+            "{}" -> ("", ObjectValue(Nil)),
+            """{
           name: "oli"
         }""" -> (
-            "",
-            ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil)
-          )
+                "",
+                ObjectValue(ObjectField(Name("name"), StringValue("oli")) :: Nil)
+            )
         )
 
         assert(clue(value.parse(objTest(0)._1)) == Right(objTest(0)._2))
@@ -106,7 +106,7 @@ class QueryParserSuite extends FunSuite:
         assert(clue(value.parse("-42.0E+2")) == Right("", FloatValue("-42.0E+2")))
         assert(clue(value.parse("true")) == Right("", BooleanValue("true")))
         assert(
-          clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\""))
+            clue(value.parse("\"name \\\"Oli\\\"\"")) == Right("", StringValue("name \\\"Oli\\\""))
         )
         assert(clue(value.parse("null")) == Right("", NullValue))
         assert(clue(value.parse("Mars")) == Right("", EnumValue(Name("Mars"))))
@@ -128,29 +128,29 @@ class QueryParserSuite extends FunSuite:
 
         variableDefinition.parse("$thing: Int! = 42")
         assert(
-          clue(variableDefinition.parse("$thing: Int! = 42")) ==
-              Right(
-                "",
-                VariableDefinition(
-                  Name("thing"),
-                  NonNullType(NamedType(Name("Int"))),
-                  Some(IntValue("42")),
-                  Nil
+            clue(variableDefinition.parse("$thing: Int! = 42")) ==
+                Right(
+                    "",
+                    VariableDefinition(
+                        Name("thing"),
+                        NonNullType(NamedType(Name("Int"))),
+                        Some(IntValue("42")),
+                        Nil
+                    )
                 )
-              )
         )
     }
 
     test("arguments") {
         val test = List(
-          "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue("42.5"))),
-          """( name: "oli", age: 38  )""" -> (
-            "",
-            NonEmptyList(
-              Argument(Name("name"), StringValue("oli")),
-              Argument(Name("age"), IntValue("38")) :: Nil
+            "thing: 42.5" -> ("", Argument(Name("thing"), FloatValue("42.5"))),
+            """( name: "oli", age: 38  )""" -> (
+                "",
+                NonEmptyList(
+                    Argument(Name("name"), StringValue("oli")),
+                    Argument(Name("age"), IntValue("38")) :: Nil
+                )
             )
-          )
         )
 
         val test2    = "id: 4"
@@ -163,15 +163,15 @@ class QueryParserSuite extends FunSuite:
 
     test("directives") {
         val test = List(
-          """@excludeField(name: "photo")""" -> (
-            "",
-            Directive(
-              Name("excludeField"),
-              List(
-                Argument(Name("name"), StringValue("photo"))
-              )
+            """@excludeField(name: "photo")""" -> (
+                "",
+                Directive(
+                    Name("excludeField"),
+                    List(
+                        Argument(Name("name"), StringValue("photo"))
+                    )
+                )
             )
-          )
         )
 
         // Directive
@@ -186,33 +186,33 @@ class QueryParserSuite extends FunSuite:
         name
       }"""
         val field1Res = Field(
-          None,
-          Name("field"),
-          Nil,
-          Nil,
-          List(Field(None, Name("name"), Nil, Nil, Nil))
+            None,
+            Name("field"),
+            Nil,
+            Nil,
+            List(Field(None, Name("name"), Nil, Nil, Nil))
         )
 
         val field2 = """user(id:4) {
         name
       }"""
         val field2Res = Field(
-          None,
-          Name("user"),
-          List(Argument(Name("id"), IntValue("4"))),
-          Nil,
-          List(Field(None, Name("name"), Nil, Nil, Nil))
+            None,
+            Name("user"),
+            List(Argument(Name("id"), IntValue("4"))),
+            Nil,
+            List(Field(None, Name("name"), Nil, Nil, Nil))
         )
 
         val field3 = """user(id:4) { # this comment used to cause problems
         name
       }"""
         val field3Res = Field(
-          None,
-          Name("user"),
-          List(Argument(Name("id"), IntValue("4"))),
-          Nil,
-          List(Field(None, Name("name"), Nil, Nil, Nil))
+            None,
+            Name("user"),
+            List(Argument(Name("id"), IntValue("4"))),
+            Nil,
+            List(Field(None, Name("name"), Nil, Nil, Nil))
         )
 
         // TODO: test field with directives
@@ -223,14 +223,14 @@ class QueryParserSuite extends FunSuite:
         ...standardProfilePic
       }"""
         val fragmentDefinition0Res = FragmentDefinition(
-          Name("friendFields"),
-          NamedType(Name("User")),
-          Nil,
-          List(
-            Field(None, Name("id"), Nil, Nil, Nil),
-            Field(None, Name("name"), Nil, Nil, Nil),
-            FragmentSpread(Name("standardProfilePic"), Nil)
-          )
+            Name("friendFields"),
+            NamedType(Name("User")),
+            Nil,
+            List(
+                Field(None, Name("id"), Nil, Nil, Nil),
+                Field(None, Name("name"), Nil, Nil, Nil),
+                FragmentSpread(Name("standardProfilePic"), Nil)
+            )
         )
 
         val fragment1Definition = """fragment friendFields on User {
@@ -242,19 +242,19 @@ class QueryParserSuite extends FunSuite:
         }
       }"""
         val fragment1DefinitionRes = FragmentDefinition(
-          Name("friendFields"),
-          NamedType(Name("User")),
-          Nil,
-          List(
-            Field(None, Name("id"), Nil, Nil, Nil),
-            Field(None, Name("name"), Nil, Nil, Nil),
-            FragmentSpread(Name("mySpread"), Nil),
-            InlineFragment(
-              Some(NamedType(Name("Thing"))),
-              Nil,
-              List(Field(None, Name("id"), Nil, Nil, Nil))
+            Name("friendFields"),
+            NamedType(Name("User")),
+            Nil,
+            List(
+                Field(None, Name("id"), Nil, Nil, Nil),
+                Field(None, Name("name"), Nil, Nil, Nil),
+                FragmentSpread(Name("mySpread"), Nil),
+                InlineFragment(
+                    Some(NamedType(Name("Thing"))),
+                    Nil,
+                    List(Field(None, Name("id"), Nil, Nil, Nil))
+                )
             )
-          )
         )
 
         assert(clue(fragmentSpread.parse("...thing")) == Right("", FragmentSpread(Name("thing"), Nil)))
@@ -277,35 +277,35 @@ class QueryParserSuite extends FunSuite:
       }"""
 
         val mutationRes = OperationDefinition(
-          Name(""),
-          Mutation,
-          variableDefinitions = Nil,
-          directives = Nil,
-          selectionSet = List(
-            Field(
-              alias = None,
-              name = Name("likeStory"),
-              arguments = List(Argument(Name("storyID"), IntValue("12345"))),
-              directives = Nil,
-              selectionSet = List(
+            Name(""),
+            Mutation,
+            variableDefinitions = Nil,
+            directives = Nil,
+            selectionSet = List(
                 Field(
-                  alias = None,
-                  name = Name("story"),
-                  arguments = Nil,
-                  directives = Nil,
-                  selectionSet = List(
-                    Field(
-                      alias = None,
-                      name = Name("likeCount"),
-                      arguments = Nil,
-                      directives = Nil,
-                      selectionSet = Nil
+                    alias = None,
+                    name = Name("likeStory"),
+                    arguments = List(Argument(Name("storyID"), IntValue("12345"))),
+                    directives = Nil,
+                    selectionSet = List(
+                        Field(
+                            alias = None,
+                            name = Name("story"),
+                            arguments = Nil,
+                            directives = Nil,
+                            selectionSet = List(
+                                Field(
+                                    alias = None,
+                                    name = Name("likeCount"),
+                                    arguments = Nil,
+                                    directives = Nil,
+                                    selectionSet = Nil
+                                )
+                            )
+                        )
                     )
-                  )
                 )
-              )
             )
-          )
         )
 
         val anonQuery = """{
@@ -313,11 +313,11 @@ class QueryParserSuite extends FunSuite:
       }"""
 
         val anonQueryRes = OperationDefinition(
-          Name(""),
-          Query,
-          Nil,
-          Nil,
-          List(Field(None, Name("field"), Nil, Nil, Nil))
+            Name(""),
+            Query,
+            Nil,
+            Nil,
+            List(Field(None, Name("field"), Nil, Nil, Nil))
         )
 
         assert(clue(operationType.parse("mutation ")).isRight)
