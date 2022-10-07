@@ -33,7 +33,7 @@ sealed trait HasSelectionSet:
 sealed trait HasDirectives:
     def directives: List[Directive]
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
+// ====================================================================================================================
 // Definitions & Documents
 case class ExecutableDocument(definitions: List[ExecutableDefinition])
 
@@ -88,7 +88,7 @@ end TypeSystemDocument
 sealed trait Definition
 sealed trait ExecutableDefinition extends Definition, HasName, HasDirectives, HasSelectionSet
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
+// ====================================================================================================================
 // Queries
 case class Name(text: String)
 
@@ -169,7 +169,7 @@ case class OperationDefinition(
     selectionSet: List[Selection]
 ) extends ExecutableDefinition
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
+// ====================================================================================================================
 // Schema
 sealed trait TypeSystemDefinition            extends Definition
 sealed trait TypeSystemExtension             extends Definition

@@ -75,7 +75,6 @@ class SchemaContext(schema: TypeSystemDocument):
                     .flatMap(getObjLikeTypeDef)
                     .toSet
                 recurse(childObjLikeTypeDefs union tail, mapping :: acc)
-        end recurse
 
         recurse(objLikeTypeDefs.toSet)
     end scopeFieldDefs
@@ -86,33 +85,30 @@ class SchemaContext(schema: TypeSystemDocument):
         val scopedFieldDefs = scopeFieldDefs(objLikeTypeDefs) // group field defs into their scopes
         val mappedFieldDefs = scopedFieldDefs.map((namedType, defs) => namedType -> mapify(defs))
 
-        Map.from(objLikeTypeDefs.map(objLikeTypeDef =>
-            val fieldDefs = mapify(objLikeTypeDef.fields)
-            val inheritedFieldDefs =
-                objLikeTypeDef.interfaces
-                    .map(int => mappedFieldDefs.get(NamedType(int.name)).getOrElse(Map.empty))
-                    .foldLeft(Map.empty[Name, FieldDefinition])(_ ++ _)
+        Map.from: 
+            objLikeTypeDefs.map: objLikeTypeDef =>
+                val fieldDefs = mapify(objLikeTypeDef.fields)
+                val inheritedFieldDefs =
+                    objLikeTypeDef.interfaces
+                        .map(int => mappedFieldDefs.get(NamedType(int.name)).getOrElse(Map.empty))
+                        .foldLeft(Map.empty[Name, FieldDefinition])(_ ++ _)
 
-            NamedType(objLikeTypeDef.name) -> (fieldDefs ++ inheritedFieldDefs)
-        ))
+                NamedType(objLikeTypeDef.name) -> (fieldDefs ++ inheritedFieldDefs)
 
     private def mapifyOpTypeDefs(schemaDef: Option[SchemaDefinition]): Map[OperationType, TypeDefinition] =
         schemaDef match
             case Some(SchemaDefinition(_, roots)) =>
-                Map.from(
-                    roots.toList.flatMap(rootOpTypeDef =>
+                Map.from:
+                    roots.toList.flatMap: rootOpTypeDef =>
                         getTypeDef(rootOpTypeDef.namedType.name)
                             .map(typeDef => rootOpTypeDef.operationType -> typeDef)
-                    )
-                )
             case None =>
-                Map.from(
+                Map.from:
                     List(
                         Query        -> Name("Query"),
                         Mutation     -> Name("Mutation"),
                         Subscription -> Name("Subscription")
                     ).flatMap((opType, name) => getTypeDef(name).map(typeDef => opType -> typeDef))
-                )
 
     private def collectDirDefDeps(dirDef: DirectiveDefinition): Set[Name] =
         def toNameSet(dirs: List[Directive]): Set[Name] = dirs.map(_.name).toSet
@@ -242,42 +238,36 @@ class DocumentContext(doc: ExecutableDocument):
         // 1. Build a map (shallowFragToVars) which maps each fragment definition to the variables they depend on.
         //    Ignore all fragment spreads (you'll see why in step 2).
         val shallowFragToVars: Map[Name, Set[Variable]] =
-            Map.from(
-                fragDefs.map(fragDef => fragDef.name -> collectVars(fragDef))
-            )
+            Map.from(fragDefs.map(fragDef => fragDef.name -> collectVars(fragDef)))
 
         // 2. Use the fragDeps graph passed to this function to find which fragment definitions each fragment
         //    definition depends on (i.e. through fragment spreads). Using shallowFragToVars map constructed in the
         //    previous step, add the vars for all frag spread dependencies (i.e. those vars a fragment definition is
         //    dependent on via dependencies on fragment spreads)
-        val deepFragToVars: Map[Name, Set[Variable]] = shallowFragToVars.map((name, vars) =>
+        val deepFragToVars: Map[Name, Set[Variable]] = shallowFragToVars.map: (name, vars) =>
             val deepVars =
                 fragDeps.deps
                     .getOrElse(name, Set.empty)                     // get name of each fragment def dependency
                     .map(shallowFragToVars.getOrElse(_, Set.empty)) // map dependency to set of vars
                     .foldLeft(Set.empty[Variable])(_ union _)       // fold set of sets into a single set
             name -> (vars union deepVars)
-        )
 
         // 3. Build a map (shallowOpToVars) which maps each operation definition to the variables they depend on.
         //    Ignore all fragment spreads
-        val shallowOpToVars: Map[Name, Set[Variable]] = Map.from(
-            opDefs.map(opDef => opDef.name -> collectVars(opDef))
-        )
+        val shallowOpToVars: Map[Name, Set[Variable]] = Map.from(opDefs.map(opDef => opDef.name -> collectVars(opDef)))
 
         // 4. Build a map (opToFrags) which maps each operation definition to the fragment definitions they depend on
         val opToFrags: Map[Name, Set[Name]] = Map.from(opDefs.map(opDef => opDef.name -> collectFragSpreads(opDef)))
 
         // 5. Using opToFrags from step 4 and deepFragVars from step 2, add to shallowOpToVars from step 3 to create
         //    a new map (deepOpToVars).
-        val deepOpToVars = shallowOpToVars.map((name, vars) =>
+        val deepOpToVars = shallowOpToVars.map: (name, vars) =>
             val deepVars =
                 opToFrags
                     .getOrElse(name, Set.empty)
                     .map(deepFragToVars.getOrElse(_, Set.empty))
                     .foldLeft(Set.empty[Variable])(_ union _)
             name -> (vars union deepVars)
-        )
 
         // 6. Build a single map nameToVars by combining deepFragToVars and deepOpToVars
         deepOpToVars ++ deepFragToVars

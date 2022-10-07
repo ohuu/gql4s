@@ -17,10 +17,9 @@ object DepGraph:
     def from[T <: HasName](ts: List[T], depsFn: T => Set[Name]): DepGraph =
         DepGraph(
             ts.map(t => t.name -> depsFn(t))
-                .foldLeft(LinkedHashMap.empty)((acc, next) =>
+                .foldLeft(LinkedHashMap.empty): (acc, next) =>
                     val (name, deps) = next
                     acc.addOne(name -> (acc.getOrElse(name, Set.empty) union deps))
-                )
         )
 
 case class DepGraph(deps: LinkedHashMap[Name, Set[Name]]):

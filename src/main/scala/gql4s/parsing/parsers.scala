@@ -44,9 +44,7 @@ val name     = namePart.map(Name(_))
 
 // Int Value
 val integerPart = (char('-').?.with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
-val intValue = integerPart.string
-    // .map(_.toInt)
-    .map(IntValue(_))
+val intValue = integerPart.string.map(IntValue(_))
 
 // Float Value
 val sign              = charIn('-', '+')
@@ -56,13 +54,10 @@ val fractionalPart    = (char('.') ~ digit.rep).string
 val floatValue =
     (integerPart ~ (exponentPart | (fractionalPart ~ exponentPart.?)) ~
         !(char('.') | alpha)).string
-        // .map(_.toFloat)
         .map(FloatValue(_))
 
 // Boolean Value
-val booleanValue = (string("true") | string("false")).string
-    // .map(_.toBoolean)
-    .map(BooleanValue(_))
+val booleanValue = (string("true") | string("false")).string.map(BooleanValue(_))
 
 // String Value
 val quote            = char('"')
@@ -87,19 +82,16 @@ val stringValue =
 val nullValue = string("null").map(_ => NullValue)
 
 // Enum Value
-val enumValue: P[EnumValue] =
-    ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
+val enumValue: P[EnumValue] = ((!(booleanValue | nullValue)).with1 *> name).map(EnumValue(_))
 
 // List Value
-val listValue: P[ListValue] = (char('[') ~ __ *> (defer(value) <* __).rep0 <* char(']'))
-    .map(ListValue(_))
+val listValue: P[ListValue] = (char('[') ~ __ *> (defer(value) <* __).rep0 <* char(']')).map(ListValue(_))
 
 // Object Value
 val objectField: P[ObjectField] = ((name <* __ ~ char(':') ~ __) ~ defer(value)).map { case name -> value =>
     ObjectField(name, value)
 }
-val objectValue =
-    (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(ObjectValue(_))
+val objectValue = (char('{') ~ __ *> (objectField <* __).rep0 <* char('}')).map(ObjectValue(_))
 
 // Type References
 val namedType: P[NamedType] = name.map(NamedType(_))
@@ -149,8 +141,7 @@ val variableDefinitions  = (char('(') ~ __ *> (variableDefinition <* __).rep <* 
 val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Selection Set
-val selection: P[Selection] =
-    defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
+val selection: P[Selection] = defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
 val selectionSet  = ((char('{') ~ __) *> (selection <* __).rep <* char('}')).map(_.toList)
 val selectionSet0 = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
 
@@ -206,23 +197,21 @@ val extend = (string("extend") ~ __).void
 val desc = (stringValue.? ~ __).void.with1
 
 // Type
-val typeDefinition = defer(
+val typeDefinition = defer:
     scalarTypeDefinition |
         objectTypeDefinition |
         interfaceTypeDefinition |
         unionTypeDefinition |
         enumTypeDefinition |
         inputObjectTypeDefinition
-)
 
-val typeExtension = defer(
+val typeExtension = defer:
     scalarTypeExtension |
         objectTypeExtension |
         interfaceTypeExtension |
         unionTypeExtension |
         enumTypeExtension |
         inputObjectTypeExtension
-)
 
 // Schema
 val schema = string("schema")
@@ -302,7 +291,7 @@ val objectTypeExtensionB =
 val objectTypeExtensionC = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map { case name -> impls =>
     ObjectTypeExtension(name, impls.toList, Nil, Nil)
 }
-val objectTypeExtension =
+val objectTypeExtension = 
     extendType *> (objectTypeExtensionA.backtrack | objectTypeExtensionB.backtrack | objectTypeExtensionC)
 
 // Interfaces
@@ -314,8 +303,7 @@ val interfaceTypeDefinitionA =
         }
 val interfaceTypeDefinitionB = ((name <* __) ~ (implementsInterfaces0 <* __) ~ directives0)
     .map { case name -> impls -> dirs => InterfaceTypeDefinition(name, impls, dirs, Nil) }
-val interfaceTypeDefinition =
-    desc ~ interfaceStart *> (interfaceTypeDefinitionA.backtrack | interfaceTypeDefinitionB)
+val interfaceTypeDefinition = desc ~ interfaceStart *> (interfaceTypeDefinitionA.backtrack | interfaceTypeDefinitionB)
 
 val extendInterface = (extend ~ string("interface") ~ __).void
 val interfaceTypeExtensionA =
@@ -380,8 +368,7 @@ val enumTypeDefinitionB =
     ((name <* __) ~ (directives0 <* __) <* !char('{')).map { case name -> dirs =>
         EnumTypeDefinition(name, dirs, Nil)
     }
-val enumTypeDefinition =
-    (desc ~ enumStr *> (enumTypeDefinitionA.backtrack | enumTypeDefinitionB))
+val enumTypeDefinition = (desc ~ enumStr *> (enumTypeDefinitionA.backtrack | enumTypeDefinitionB))
 
 val extendEnum = (extend ~ string("enum") ~ __).void
 val enumTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ enumValuesDefinition).map {
@@ -404,8 +391,7 @@ val inputObjectTypeDefinitionA =
 val inputObjectTypeDefinitionB = ((name <* __) ~ (directives0 <* __) <* !char('{')).map { case name -> dirs =>
     InputObjectTypeDefinition(name, dirs, Nil)
 }
-val inputObjectTypeDefinition =
-    (desc ~ input *> (inputObjectTypeDefinitionA.backtrack | inputObjectTypeDefinitionB))
+val inputObjectTypeDefinition = (desc ~ input *> (inputObjectTypeDefinitionA.backtrack | inputObjectTypeDefinitionB))
 
 val extendInput = (extend ~ string("input") ~ __).void
 val inputObjectTypeExtensionA = ((name <* __) ~ (directives0 <* __) ~ inputFieldsDefinition).map {
@@ -443,12 +429,11 @@ val executableDirectiveLocation =
 
 val directiveLocation = typeSystemDirectiveLocation | executableDirectiveLocation
 
-val directiveLocations = recursive[List[DirectiveLocation]] { recurse =>
+val directiveLocations = recursive[List[DirectiveLocation]]: recurse =>
     (((char('|')).? ~ __).with1 *> (directiveLocation <* __) ~ recurse.?).map {
         case tpe -> None       => List(tpe)
         case tpe -> Some(tpes) => tpe :: tpes
     }
-}
 
 val directiveStart = (desc ~ string("directive") ~ __ ~ char('@') ~ __).void
 val on             = (__ ~ string("on") ~ __).void

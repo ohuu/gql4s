@@ -109,7 +109,6 @@ def validateRequiredFields(
   */
 def validateInputObjectValue(
     inObjVal: ObjectValue,
-    // inValDef: InputValueDefinition,
     inObjTypeDef: InputObjectTypeDefinition
 )(using ctx: SchemaContext): Validated[List[ObjectValue]] =
     @tailrec
