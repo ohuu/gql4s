@@ -26,6 +26,7 @@ enum GqlError:
     case FieldDefinitionMissing(missingFieldName: Name, onType: Name)
     case FieldMissing(typeDef: Name, missingFieldName: Name)
     case DuplicateFields(fields: List[Name])
+    case NonMergableFieldsFound(nonMergable: List[(Name, Name)])
 
     // Fragment errors
     case FragmentDefinitionUnused(fragDef: Name)

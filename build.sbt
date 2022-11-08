@@ -1,4 +1,5 @@
-val scala3Version = "3.2.2-RC1-bin-20221003-5d1497d-NIGHTLY"
+// val scala3Version = "3.2.2-RC1-bin-20221003-5d1497d-NIGHTLY"
+val scala3Version = "3.2.0"
 
 lazy val catsParseVersion = "0.3.6"
 lazy val munitVersion     = "0.7.29"
@@ -18,8 +19,8 @@ lazy val root = project
             "-explain",       // Explain errors in more detail
             "-explain-types", // Explain type errors in more detail
             "-indent",        // Allow significant indentation.
-            "-new-syntax",    // Require `then` and `do` in control expressions.
-            "-language:experimental.fewerBraces"
+            "-new-syntax"     // Require `then` and `do` in control expressions.
+            // "-language:experimental.fewerBraces"
         ),
         libraryDependencies ++= Seq(
             "org.typelevel" %% "cats-parse" % catsParseVersion,

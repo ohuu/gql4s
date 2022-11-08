@@ -20,6 +20,12 @@ import parsing.Value.*
 
 type Validated[T] = ValidatedNec[GqlError, T]
 
+@tailrec
+def unwrapType(`type`: Type): NamedType = `type` match
+    case NonNullType(t) => unwrapType(t)
+    case ListType(t)    => unwrapType(t)
+    case t: NamedType   => t
+
 def isLeafType(`type`: Type): Boolean = `type`.name.text match
     case "Int" | "Float" | "String" | "Boolean" | "ID" => true
     case _                                             => false
@@ -30,32 +36,20 @@ def validateObjectType(`type`: Type)(using ctx: SchemaContext): Validated[Type] 
         case _                             => NonObjectType(`type`).invalidNec
 
 def validateInputType(`type`: Type)(using ctx: SchemaContext): Validated[Type] =
-    @tailrec
-    def recurse(tpe: Type): Validated[Type] = tpe match
-        case NonNullType(t) => recurse(t)
-        case ListType(t)    => recurse(t)
-        case NamedType(name) =>
-            ctx.getTypeDef(name) match
-                case Some(_: ScalarTypeDefinition)      => `type`.validNec
-                case Some(_: EnumTypeDefinition)        => `type`.validNec
-                case Some(_: InputObjectTypeDefinition) => `type`.validNec
-                case _ => if isLeafType(`type`) then `type`.validNec else NonInputType(`type`).invalidNec
-    recurse(`type`)
+    ctx.getTypeDef(unwrapType(`type`).name) match
+        case Some(_: ScalarTypeDefinition)      => `type`.validNec
+        case Some(_: EnumTypeDefinition)        => `type`.validNec
+        case Some(_: InputObjectTypeDefinition) => `type`.validNec
+        case _ => if isLeafType(`type`) then `type`.validNec else NonInputType(`type`).invalidNec
 
 def validateOutputType(`type`: Type)(using ctx: SchemaContext): Validated[Type] =
-    @tailrec
-    def recurse(tpe: Type): Validated[Type] = tpe match
-        case NonNullType(t) => recurse(t)
-        case ListType(t)    => recurse(t)
-        case NamedType(name) =>
-            ctx.getTypeDef(name) match
-                case Some(_: ScalarTypeDefinition)    => `type`.validNec
-                case Some(_: ObjectTypeDefinition)    => `type`.validNec
-                case Some(_: InterfaceTypeDefinition) => `type`.validNec
-                case Some(_: UnionTypeDefinition)     => `type`.validNec
-                case Some(_: EnumTypeDefinition)      => `type`.validNec
-                case _ => if isLeafType(`type`) then `type`.validNec else NonOutputType(`type`).invalidNec
-    recurse(`type`)
+    ctx.getTypeDef(unwrapType(`type`).name) match
+        case Some(_: ScalarTypeDefinition)    => `type`.validNec
+        case Some(_: ObjectTypeDefinition)    => `type`.validNec
+        case Some(_: InterfaceTypeDefinition) => `type`.validNec
+        case Some(_: UnionTypeDefinition)     => `type`.validNec
+        case Some(_: EnumTypeDefinition)      => `type`.validNec
+        case _ => if isLeafType(`type`) then `type`.validNec else NonOutputType(`type`).invalidNec
 
 def validateUniqueName[T <: HasName](ts: List[T])(errFn: List[Name] => GqlError): Validated[List[T]] = ts
     .groupBy(_.name)
@@ -99,10 +93,11 @@ def validateRequiredFields(
 ): Validated[List[ObjectField]] =
     inObjTypeDef.fields
         .filter(_.`type`.isInstanceOf[NonNullType])
-        .traverse: inputValDef =>
+        .traverse { inputValDef =>
             objValue.fields.find(_.name == inputValDef.name) match
                 case None           => InputObjectFieldRequired(inputValDef.name, inObjTypeDef.name).invalidNec
                 case Some(objField) => objField.validNec[GqlError]
+        }
 
 /**   - 5.6.2 input object field exists
   *   - 5.6.3 input object field duplicates
@@ -283,16 +278,16 @@ def validateArgs(
     validateVariable: (Variable, Type) => Validated[Value]
 )(using ctx: SchemaContext): Validated[List[Argument]] =
     val validatedArgs =
-        args.traverse { 
-            case arg @ Argument(name, _) =>
-                // 5.4.1 args exist
-                `def`.arguments.find(_.name == name) match
-                    case None         => InputValueDefinitionMissing(name).invalidNec
-                    case Some(argDef) => (arg -> argDef).validNec
-        }.andThen: argsWithDef =>
-            argsWithDef.traverse { 
-                case (arg, argDef) => validateValue(arg.value, argDef.`type`)(validateVariable) 
+        args.traverse { case arg @ Argument(name, _) =>
+            // 5.4.1 args exist
+            `def`.arguments.find(_.name == name) match
+                case None         => InputValueDefinitionMissing(name).invalidNec
+                case Some(argDef) => (arg -> argDef).validNec
+        }.andThen { argsWithDef =>
+            argsWithDef.traverse { case (arg, argDef) =>
+                validateValue(arg.value, argDef.`type`)(validateVariable)
             }
+        }
 
     // 5.4.2 args are unique
     val validatedArgNames = validateUniqueName(args)(DuplicateArguments(_))
@@ -329,7 +324,7 @@ def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
         case None         => DirectiveDefinitionMissing(dir.name).invalidNec
 
     validateDirDefExists
-        .andThen: dirDef =>
+        .andThen { dirDef =>
             val validatedArgs = validateArgs(dir.arguments, dirDef)((value, _) => value.validNec)
             val validatedLocation =
                 if dirDef.directiveLocs.find(_ == currLoc).isDefined then dirDef.validNec
@@ -339,6 +334,7 @@ def validateDirective(dir: Directive, currLoc: DirectiveLocation)(using
                 validatedArgs,
                 validatedLocation
             ).mapN((_, _) => dir -> dirDef)
+        }
 
 /**   - 5.7.1 Directive definitions should exist.
   *   - 5.7.2 Directive must be used in a valid location
@@ -351,7 +347,7 @@ def validateDirectives(dirs: List[Directive], currLoc: DirectiveLocation)(using
         .map(validateDirective(_, currLoc).map(List(_)))
         .reduceOption(_ combine _)
         .getOrElse(Nil.validNec)
-        .andThen: dirsWithDef =>
+        .andThen { dirsWithDef =>
             dirsWithDef
                 .filterNot(_._2.repeatable)
                 .groupBy(_._1.name)
@@ -361,20 +357,21 @@ def validateDirectives(dirs: List[Directive], currLoc: DirectiveLocation)(using
                     case (name, duplicates) =>
                         DuplicateDirectives(duplicates.map { case (dir, _) => dir.name }.distinct).invalidNec
                 }
-            // .map { case (_, occurences) =>
-            //     occurences(0)._1 -> occurences.length
-            // }
-            // .map {
-            //     case (dir, count) if count == 1 => List(dir).validNec
-            //     case (dir, count)               => DuplicateName(dir.name).invalidNec
-            // }
-            // .reduceOption(_ combine _)
-            // .getOrElse(Nil.validNec)
+        // .map { case (_, occurences) =>
+        //     occurences(0)._1 -> occurences.length
+        // }
+        // .map {
+        //     case (dir, count) if count == 1 => List(dir).validNec
+        //     case (dir, count)               => DuplicateName(dir.name).invalidNec
+        // }
+        // .reduceOption(_ combine _)
+        // .getOrElse(Nil.validNec)
+        }
 end validateDirectives
 
 // TODO:
 // ✔️✔️ 3.13 (why isn't this in section 5?!?) directive definitions need to be validated
-// 5.3.2 Field merging needs to be implemented (BIG)
+// ✔️✔️ 5.3.2 Field merging needs to be implemented (BIG)
 // ✔️✔️ 5.4.1, 5.4.2 & 5.4.2.1 must also be applied to directives
 // 5.5.2.3.4 Abstract spreads within abstract scope need to be validated
 // ✔️✔️ 5.6.1 Value type must be validated

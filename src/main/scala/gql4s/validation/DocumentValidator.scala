@@ -216,7 +216,10 @@ object DocumentValidator:
                                     else recurse(tail, acc)
         end recurse
 
-        recurse(selectionSet.map(parentType -> _))
+        (
+            recurse(selectionSet.map(parentType -> _)),
+            fieldsInSetCanMerge(selectionSet, parentType)
+        ).mapN((validSelectionSet, _) => validSelectionSet)
     end validateSelectionSet
 
     def validateAnonymousOperationDefinition(
@@ -241,9 +244,11 @@ object DocumentValidator:
         val validatedDirectives = validateDirectives(varDef.directives, EDL.VARIABLE_DEFINITION)
 
         val validatedDefaultValue =
-            varDef.defaultValue.traverse:
-                validateValue(_, varDef.`type`): (variable, _) =>
+            varDef.defaultValue.traverse {
+                validateValue(_, varDef.`type`) { (variable, _) =>
                     IllegalUseOfVariableAsDefaultValue(variable.name).invalidNec
+                }
+            }
 
         (
             validatedVariableTypes,
@@ -262,17 +267,19 @@ object DocumentValidator:
         // 5.8.3 variable uses defined
         val validatedVariablesDefined =
             requiredVars
-                .map: varName =>
+                .map { varName =>
                     if varDefs.exists(_.name == varName) then ().validNec
                     else VariableDefinitionMissing(varName).invalidNec
+                }
                 .reduceOption(_ combine _)
                 .getOrElse(().validNec)
 
         // 5.8.4 all variables used
         val validatedVariablesUsed =
-            varDefs.traverse: varDef =>
+            varDefs.traverse { varDef =>
                 if requiredVars.exists(_ == varDef.name) then ().validNec
                 else VariableUnused(varDef.name).invalidNec
+            }
 
         // 5.8.2 variable type must be an input type
         val validatedVariableDefs = varDefs.traverse(validateVariableDefinition)
@@ -340,9 +347,10 @@ object DocumentValidator:
         refs: List[Name]
     ): Validated[List[FragmentDefinition]] =
         defs
-            .traverse: fragDef =>
+            .traverse { fragDef =>
                 if refs.contains(fragDef.name) then fragDef.validNec
                 else FragmentDefinitionUnused(fragDef.name).invalidNec
+            }
 
     def validateFragmentDefinitions(fragDefs: List[FragmentDefinition])(using
         ctx: Context
@@ -357,18 +365,20 @@ object DocumentValidator:
                 //       pre-process the sortedgraph (sortedGraph.map ...) instead of doing it each iteration
 
                 val fragmentUses = ctx.fragSpreads
-                    .flatMap: name =>
+                    .flatMap { name =>
                         val deps = ctx.fragDeps.deps.get(name).getOrElse(Set.empty)
                         name :: deps.toList
+                    }
 
                 val allRefsToFragDefs = ctx.fragDeps.deps
                     .map((_, deps) => deps)
                     .foldLeft(Set.empty[Name])(_ union _)
                     .toList
 
-                val validateFragDefsExist = allRefsToFragDefs.traverse: depName =>
+                val validateFragDefsExist = allRefsToFragDefs.traverse { depName =>
                     if ctx.getFragDef(depName).isDefined then depName.validNec
                     else FragmentDefinitionMissing(depName).invalidNec
+                }
 
                 (
                     // 5.5.1.1 fragment definition unique name
@@ -393,74 +403,109 @@ object DocumentValidator:
         // 5.1.1
         // This is implied by the fact that the validate function expects doc to be an ExecutableDocument
 
-        validateFragmentDefinitions(docCtx.fragDefs).andThen: _ =>
+        validateFragmentDefinitions(docCtx.fragDefs).andThen { _ =>
             (
                 validateOperationDefinitions(docCtx.opDefs),
                 validateSubscriptionsHaveSingleRoot
             ).mapN((_, _) => doc)
+        }
     end validate
 
     // 5.3.2
-    // TODO: Can this be integrated into the normal traversal of the document
-    // def fieldsInSetCanMerge(
-    //     set: SelectionSet,
-    //     parentType: Type
-    // )(using doc: ExecutableDocument, schema: TypeSystemDocument): Boolean =
-    //   def pairs[T](xs: List[T]): List[(T, T)] =
-    //     val ps = for
-    //       i <- 0 until xs.length - 1
-    //       j <- (i + 1) until xs.length
-    //     yield (xs(i), xs(j))
+    type MergableFields      = (Field, Field)
+    type FieldWithParentType = (Field, NamedType)
 
-    //     ps.toList
-    //   end pairs
+    // TODO: make this tail recursive!
+    def fieldsInSetCanMerge(set: List[Selection], parentType: NamedType)(using
+        ctx: Context
+    ): Validated[List[MergableFields]] =
+        def collectFields(set: List[Selection]): List[Field] =
+            set.flatMap {
+                case field @ Field(alias, name, _, _, _) => Some(field)
+                case _                                   => None
+            }
 
-    //   def getType(s: Selection, parentType: NamedType): Option[Type] = s match
-    //     case Field(_, name, _, _, _) =>
-    //       schema.findFieldDef(name, parentType).map(_.`type`)
-    //     case FragmentSpread(name, _) =>
-    //       doc.findFragDef(name).map(_.on)
-    //     case InlineFragment(onType, _, _) => onType
-    //   end getType
+        def getFieldsForName(set: List[Selection], parentType: NamedType): List[FieldWithParentType] = set.flatMap {
+            case field: Field => List(field -> parentType)
+            case FragmentSpread(name, _) =>
+                ctx.getFragDef(name)
+                    .map((fragDef) => collectFields(fragDef.selectionSet).map(f => f -> fragDef.on))
+                    .getOrElse(Nil)
+            case InlineFragment(tpe, _, selectionSet) => collectFields(selectionSet).map(_ -> tpe.getOrElse(parentType))
+        }
 
-    //   def fragToFieldNameMap(parentType: Type)(
-    //       frag: InlineFragment | FragmentSpread
-    //   ): Map[Name, List[(Selection, Type)]] =
-    //     val selectionSetWithType = frag match
-    //       case InlineFragment(None, _, selectionSet) => selectionSet.toList.map(_ -> parentType)
-    //       case InlineFragment(Some(onType), _, selectionSet) => selectionSet.toList.map(_ -> onType)
-    //       case FragmentSpread(name, _) =>
-    //         doc
-    //           .findFragDef(name)
-    //           .map(fragDef => fragDef.selectionSet.toList.map(_ -> fragDef.on))
-    //           .getOrElse(Nil)
+        def getMergeCandidates(
+            set: List[Selection],
+            parentType: NamedType
+        ): List[(FieldWithParentType, FieldWithParentType)] =
+            getFieldsForName(set, parentType)
+                .groupBy {
+                    case (Field(Some(alias), _, _, _, _), _) => alias
+                    case (Field(_, name, _, _, _), _)        => name
+                }
+                // .groupBy(_._1.name)
+                .toList
+                .flatMap {
+                    case (_, occ) if occ.length > 1 => occ.combinations(2).map(f => (f(0), f(1)))
+                    case _                          => Nil
+                }
 
-    //     selectionSetWithType
-    //       .map { case (selectionSet, parentType) =>
-    //         selectionToFieldNameMap(parentType)(selectionSet)
-    //       }
-    //       .reduceOption(_ combine _)
-    //       .getOrElse(Map.empty)
-    //   end fragToFieldNameMap
+        def isScalarOrEnum(`type`: NamedType): Boolean =
+            ctx.getEnumTypeDef(`type`.name).isDefined || ctx.getScalarTypeDef(`type`.name).isDefined
 
-    //   // TODO: Make this tail recursive
-    //   def selectionToFieldNameMap(parentType: Type)(
-    //       selection: Selection
-    //   ): Map[Name, List[(Selection, Type)]] = selection match
-    //     case field: Field         => Map(field.name -> List((field, parentType)))
-    //     case frag: InlineFragment => fragToFieldNameMap(parentType)(frag)
-    //     case frag: FragmentSpread => fragToFieldNameMap(parentType)(frag)
-    //   end selectionToFieldNameMap
+        def isCompositeType(`type`: NamedType): Boolean = ctx.getObjLikeTypeDef(`type`.name).isDefined
 
-    //   def hasSameResponseShape(selA: Selection, selB: Selection): Boolean =
-    //     val typeA = getType(selA)
-    //   end hasSameResponseShape
+        def sameResponseShape(a: FieldWithParentType, b: FieldWithParentType): Boolean =
+            val (fieldA, parentTypeA) = a
+            val (fieldB, parentTypeB) = b
 
-    //   val fieldToNameMap      = set.map(selectionToFieldNameMap(parentType)).reduceLeft(_ combine _)
-    //   val duplicateSelections = fieldToNameMap.values.flatMap(pairs).toList
+            def recurse(typeA: Type, typeB: Type): Boolean =
+                (typeA, typeB) match
+                    case (NonNullType(a), NonNullType(b))          => recurse(a, b)
+                    case (NonNullType(_), _) | (_, NonNullType(_)) => false
+                    case (ListType(a), ListType(b))                => recurse(a, b)
+                    case (ListType(_), _) | (_, ListType(_))       => false
+                    case (a: NamedType, b: NamedType) =>
+                        if isScalarOrEnum(a) || isScalarOrEnum(b) then a == b
+                        else if isCompositeType(a) && isCompositeType(b) then
+                            val mergedSet       = fieldA.selectionSet ++ fieldB.selectionSet
+                            val mergeCandidates = getMergeCandidates(mergedSet, parentType)
+                            mergeCandidates.forall(sameResponseShape)
+                        else false
 
-    //   val sameResponseShape = duplicateSelections.map(hasSameResponseShape.tupled)
+            val typeA = ctx.getFieldDef(parentTypeA)(fieldA.name).get.`type` // must have a field def if we got here
+            val typeB = ctx.getFieldDef(parentTypeB)(fieldB.name).get.`type` // must have a field def if we got here
+            recurse(typeA, typeB)
+        end sameResponseShape
 
-    //   ???
-    // end fieldsInSetCanMerge
+        def isObjectType(field: Field, parentType: NamedType): Boolean =
+            ctx.getFieldDef(parentType)(field.name)
+                .flatMap(fieldDef => ctx.getObjTypeDef(fieldDef.`type`.name))
+                .isDefined
+
+        val mergeCandidates = getMergeCandidates(set, parentType)
+
+        mergeCandidates
+            .traverse { case (a @ (fieldA, parentTypeA), b @ (fieldB, parentTypeB)) =>
+                if sameResponseShape(a, b) then
+                    val sharedParentType = if parentTypeA == parentTypeB then Some(unwrapType(parentTypeA)) else None
+                    val eitherNonObject  = isObjectType(fieldA, parentTypeA) || isObjectType(fieldB, parentTypeB)
+
+                    if sharedParentType.isDefined || eitherNonObject then
+                        val sameNames = fieldA.name == fieldB.name
+                        val sameArgs  = fieldA.arguments.toSet == fieldB.arguments.toSet
+
+                        if sameNames && sameArgs then
+                            val mergedSet = (fieldA.selectionSet.toSet union fieldB.selectionSet.toSet).toList
+                            if mergedSet.isEmpty then ((fieldA, fieldB) :: Nil).validNec
+                            else fieldsInSetCanMerge(mergedSet, sharedParentType.get)
+                        else NonMergableFieldsFound((fieldA.name, fieldB.name) :: Nil).invalidNec
+                    else ((fieldA, fieldB) :: Nil).validNec
+                else NonMergableFieldsFound((fieldA.name, fieldB.name) :: Nil).invalidNec
+            }
+            .map(_.flatten)
+    end fieldsInSetCanMerge
+
+    // def validateVariableUsage(variable: Variable, usage: Argument | InputValueDefinition)(using ctx: Context): Validated[OperationDefinition] =
+
 end DocumentValidator

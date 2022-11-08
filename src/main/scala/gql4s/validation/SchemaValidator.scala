@@ -64,16 +64,18 @@ object SchemaValidator:
 
         // aField must contain ALL args in bField
         // shared args must be the same type (invariant)
-        val validatedImplementationArgs = bArgs.traverse: bArg =>
+        val validatedImplementationArgs = bArgs.traverse { bArg =>
             aArgs.find(_.name == bArg.name) match
                 case None       => RequiredArgumentMissing(bArg.name, aField.name).invalidNec
                 case Some(aArg) => validateInvariant(aArg, bArg)
+        }
 
         // aField can have more args than bField but they must not be required fields
-        val validatedExtraArgs = extraArgs.traverse: arg =>
+        val validatedExtraArgs = extraArgs.traverse { arg =>
             arg.`type` match
                 case tpe: NonNullType => ArgumentCannotBeRequired(aField.name, arg.name).invalidNec
                 case _                => arg.validNec
+        }
 
         (validatedImplementationArgs, validatedExtraArgs).mapN((validArgs, validExtraArgs) => aField)
     end validateFieldHasArgs
@@ -83,7 +85,7 @@ object SchemaValidator:
     def validateImplementationFields(a: ObjectLikeTypeDefinition, b: InterfaceTypeDefinition)(using
         SchemaContext
     ): Validated[ObjectLikeTypeDefinition] = b.fields
-        .traverse: bField =>
+        .traverse { bField =>
             a.fields.find(_.name == bField.name) match
                 case None => FieldMissing(a.name, bField.name).invalidNec
                 case Some(aField) =>
@@ -91,6 +93,7 @@ object SchemaValidator:
                         validateFieldHasArgs(aField, bField),
                         validateCovariant(aField.`type`, bField.`type`)
                     ).mapN((validArgs, validReturnType) => aField)
+        }
         .map(_ => a)
 
     /** Checks whether the given type {@a} is a valid implementation of {@b}

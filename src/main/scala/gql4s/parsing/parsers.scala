@@ -44,7 +44,7 @@ val name     = namePart.map(Name(_))
 
 // Int Value
 val integerPart = (char('-').?.with1 ~ (char('0') | nonZeroDigit ~ digit.rep0)).string
-val intValue = integerPart.string.map(IntValue(_))
+val intValue    = integerPart.string.map(IntValue(_))
 
 // Float Value
 val sign              = charIn('-', '+')
@@ -142,8 +142,8 @@ val variableDefinitions0 = variableDefinitions.?.map(_.map(_.toList).getOrElse(N
 
 // Selection Set
 val selection: P[Selection] = defer(inlineFragment).backtrack | defer(fragmentSpread) | defer(field)
-val selectionSet  = ((char('{') ~ __) *> (selection <* __).rep <* char('}')).map(_.toList)
-val selectionSet0 = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
+val selectionSet            = ((char('{') ~ __) *> (selection <* __).rep <* char('}')).map(_.toList)
+val selectionSet0           = selectionSet.?.map(_.map(_.toList).getOrElse(Nil))
 
 // Fragments
 val fragment      = string("fragment")
@@ -197,21 +197,23 @@ val extend = (string("extend") ~ __).void
 val desc = (stringValue.? ~ __).void.with1
 
 // Type
-val typeDefinition = defer:
+val typeDefinition = defer(
     scalarTypeDefinition |
         objectTypeDefinition |
         interfaceTypeDefinition |
         unionTypeDefinition |
         enumTypeDefinition |
         inputObjectTypeDefinition
+)
 
-val typeExtension = defer:
+val typeExtension = defer(
     scalarTypeExtension |
         objectTypeExtension |
         interfaceTypeExtension |
         unionTypeExtension |
         enumTypeExtension |
         inputObjectTypeExtension
+)
 
 // Schema
 val schema = string("schema")
@@ -291,7 +293,7 @@ val objectTypeExtensionB =
 val objectTypeExtensionC = ((name <* __) ~ (implementsInterfaces <* __) <* !char('{')).map { case name -> impls =>
     ObjectTypeExtension(name, impls.toList, Nil, Nil)
 }
-val objectTypeExtension = 
+val objectTypeExtension =
     extendType *> (objectTypeExtensionA.backtrack | objectTypeExtensionB.backtrack | objectTypeExtensionC)
 
 // Interfaces
@@ -429,11 +431,12 @@ val executableDirectiveLocation =
 
 val directiveLocation = typeSystemDirectiveLocation | executableDirectiveLocation
 
-val directiveLocations = recursive[List[DirectiveLocation]]: recurse =>
+val directiveLocations = recursive[List[DirectiveLocation]] { recurse =>
     (((char('|')).? ~ __).with1 *> (directiveLocation <* __) ~ recurse.?).map {
         case tpe -> None       => List(tpe)
         case tpe -> Some(tpes) => tpe :: tpes
     }
+}
 
 val directiveStart = (desc ~ string("directive") ~ __ ~ char('@') ~ __).void
 val on             = (__ ~ string("on") ~ __).void
